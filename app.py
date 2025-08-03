@@ -1,43 +1,33 @@
-# app.py (نسخه جدید با لاگ‌گیری پیشرفته)
+# app.py (نسخه نهایی و ساده‌شده)
 
+import os
 import io
-import base64
-import traceback # کتابخانه جدید برای چاپ کامل خطا
+import traceback
 from flask import Flask, request, jsonify, send_file, render_template
+
+# Import necessary libraries
 from fpdf import FPDF
 from docx import Document
 from openpyxl import Workbook
 
 app = Flask(__name__)
 
-# --- PASTE YOUR BASE64 FONT STRING HERE ---
-# مطمئن شوید که رشته کامل و بدون هیچ تغییری اینجا کپی شده است
-VAZIR_FONT_BASE64 = """
-اینجا رشته طولانی که از فایل font_base64.txt کپی کرده‌اید را جای‌گذاری کنید
-"""
-# ---
+# --- تعریف نام فایل فونت ---
+# مطمئن شوید این فایل در همان پوشه app.py قرار دارد
+FONT_FILE = "Vazirmatn-Regular.ttf"
 
+# --- ساخت PDF با خواندن مستقیم فایل فونت ---
 def create_pdf(text_content):
-    print("--- Starting PDF creation ---")
+    print("--- Starting PDF creation using file method ---")
     pdf = FPDF()
     pdf.add_page()
     
     try:
-        print("Step 1: Decoding Base64 font string...")
-        # مطمئن می‌شویم که فضای خالی اضافی در ابتدا و انتهای رشته حذف شود
-        font_string_stripped = VAZIR_FONT_BASE64.strip()
-        if not font_string_stripped:
-            raise ValueError("VAZIR_FONT_BASE64 variable is empty!")
-            
-        font_data = base64.b64decode(font_string_stripped)
-        print(f"Step 2: Successfully decoded {len(font_data)} bytes of font data.")
+        print(f"Step 1: Adding font to FPDF from file: '{FONT_FILE}'...")
+        # fpdf2 مستقیماً فایل را از مسیر داده شده می‌خواند
+        pdf.add_font('Vazir', '', FONT_FILE, uni=True)
         
-        # استفاده از io.BytesIO برای خواندن داده‌های بایت فونت
-        font_stream = io.BytesIO(font_data)
-        
-        print("Step 3: Adding font to FPDF object...")
-        pdf.add_font('Vazir', '', font_stream, uni=True)
-        print("Step 4: Setting PDF font to Vazir...")
+        print("Step 2: Setting PDF font to Vazir...")
         pdf.set_font('Vazir', '', 12)
         pdf.set_right_to_left(True)
         print("--- Font embedding successful ---")
@@ -49,25 +39,26 @@ def create_pdf(text_content):
         
         print("Falling back to default Arial font.")
         pdf.set_font('Arial', 'B', 12)
-        pdf.cell(0, 10, 'WARNING: Persian font could not be loaded. Please check server logs.', 0, 1, 'C')
+        pdf.cell(0, 10, 'WARNING: Persian font could not be loaded. Check logs.', 0, 1, 'C')
         pdf.set_font('Arial', '', 12)
 
-    print("Step 5: Writing text content to PDF...")
+    print("Step 3: Writing text content to PDF...")
+    # این قسمت حالا باید با فونت وزیر کار کند
     pdf.multi_cell(0, 10, text_content)
     
-    print("Step 6: Generating PDF output bytes...")
+    print("Step 4: Generating PDF output bytes...")
     pdf_output = pdf.output()
     buffer = io.BytesIO(pdf_output)
     buffer.seek(0)
     print("--- PDF creation finished ---")
     return buffer
 
-# --- سایر توابع بدون تغییر باقی می‌مانند ---
+# --- سایر توابع تولید فایل (بدون تغییر) ---
 def create_docx(text_content):
     buffer = io.BytesIO()
     document = Document()
     p = document.add_paragraph(text_content)
-    p.alignment = 3
+    p.alignment = 3 # WD_ALIGN_PARAGRAPH.RIGHT
     document.save(buffer)
     buffer.seek(0)
     return buffer
@@ -88,6 +79,7 @@ def create_xlsx(text_content):
     buffer.seek(0)
     return buffer
 
+# --- منطق اصلی پردازش درخواست (بدون تغییر) ---
 def process_request(content, file_format):
     try:
         if file_format == 'pdf':
@@ -102,7 +94,7 @@ def process_request(content, file_format):
             buffer = create_xlsx(content)
             filename = 'export.xlsx'
             mimetype = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        else: # txt
+        else:
             buffer = create_txt(content)
             filename = 'export.txt'
             mimetype = 'text/plain'
@@ -113,12 +105,12 @@ def process_request(content, file_format):
             download_name=filename,
             mimetype=mimetype
         )
-    except Exception as e:
-        print(f"🔥🔥🔥 Error in process_request for format '{file_format}' 🔥🔥🔥")
+    except Exception:
+        print(f"🔥🔥🔥 An uncaught error occurred in process_request for format '{file_format}' 🔥🔥🔥")
         print(traceback.format_exc())
-        # این پیام خطا در مرورگر کاربر نمایش داده می‌شود
         return "An internal server error occurred while generating the file.", 500
 
+# --- روت‌های فلسک (بدون تغییر) ---
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':
@@ -126,20 +118,21 @@ def index():
         file_format = request.form.get('format', 'txt').lower()
         if not content:
             return "لطفا متنی برای تبدیل وارد کنید.", 400
-        # تمام منطق پردازش به process_request منتقل شد تا خطاها در آنجا مدیریت شوند
         return process_request(content, file_format)
     return render_template('index.html')
 
-# API route remains the same for now
 @app.route('/convert', methods=['POST'])
 def convert_text_api():
-    data = request.json
-    content = data.get('content')
-    file_format = data.get('format', 'txt').lower()
-    if not content:
-        return jsonify({"error": "No content provided"}), 400
-    return process_request(content, file_format)
-
+    try:
+        data = request.json
+        content = data.get('content')
+        file_format = data.get('format', 'txt').lower()
+        if not content:
+            return jsonify({"error": "No content provided"}), 400
+        return process_request(content, file_format)
+    except Exception as e:
+        print(f"🔥🔥🔥 API Error: {e}")
+        return jsonify({"error": "Internal Server Error"}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
