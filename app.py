@@ -22,17 +22,23 @@ FOOTER_TEXT = "هوش مصنوعی آلفا دانلود از گوگل پلی"
 
 def create_pdf_with_weasyprint(text_content):
     """
-    ساخت PDF با تشخیص خودکار جهت متن برای هر پاراگراف
+    با استفاده از WeasyPrint از متن یک PDF زیبا و بی‌نقص می‌سازد.
+    این نسخه جهت متن را به صورت خودکار تشخیص می‌دهد.
     """
-    print("--- Starting PDF creation with auto LTR/RTL detection ---")
+    print("--- Starting PDF creation with WeasyPrint (Auto-direction) ---")
     
-    # <<< تغییر کلیدی: افزودن dir="auto" به پاراگراف‌ها و اصلاح CSS >>>
+    # <<< تغییر کلیدی: افزودن dir="auto" به هر پاراگراف >>>
+    # ما دیگر جهت کلی سند را rtl نمی‌کنیم، بلکه به هر پاراگراف اجازه می‌دهیم جهت خود را پیدا کند.
+    paragraphs_html = ''.join([f'<p dir="auto">{line}</p>' for line in text_content.strip().splitlines() if line.strip()])
+    
+    # 1. ساخت یک قالب HTML کامل و زیبا با استفاده از CSS
     html_template = f"""
     <!DOCTYPE html>
-    <html lang="fa" dir="rtl">
+    <html lang="fa">
     <head>
         <meta charset="UTF-8">
         <style>
+            /* تعریف فونت وزیر برای استفاده در کل سند */
             @font-face {{
                 font-family: 'Vazir';
                 src: url('{FONT_FILE_NAME}');
@@ -44,32 +50,38 @@ def create_pdf_with_weasyprint(text_content):
                 line-height: 1.8;
             }}
             
+            /* <<< تغییر کلیدی: استایل‌دهی هوشمند بر اساس جهت متن >>> */
+            /* پاراگراف‌های راست‌چین (فارسی) */
+            p[dir="rtl"] {{
+                text-align: right;
+            }}
+            /* پاراگراف‌های چپ‌چین (انگلیسی) */
+            p[dir="ltr"] {{
+                text-align: left;
+            }}
+            
             p {{
-                /* باعث می‌شود پاراگراف‌ها در هر دو حالت زیبا به نظر برسند */
-                text-align: justify;
                 margin-top: 0;
                 margin-bottom: 1em;
             }}
-            
-            /* این دو خط مهم‌ترین بخش استایل جدید هستند */
-            p[dir="rtl"] {{ text-align: right; }}
-            p[dir="ltr"] {{ text-align: left; }}
 
+            /* استایل پاورقی (پاورقی همیشه راست‌چین است) */
             .footer {{
                 position: fixed;
                 bottom: 10px;
                 left: 0;
                 right: 0;
                 text-align: center;
-                color: #007bff;
+                color: #007bff; /* آبی */
                 font-size: 10pt;
+                direction: rtl; /* جهت پاورقی ثابت است */
             }}
         </style>
     </head>
     <body>
-        <!-- برای هر پاراگراف از dir="auto" استفاده می‌کنیم تا جهت آن هوشمندانه تعیین شود -->
-        {''.join([f'<p dir="auto">{line}</p>' for line in text_content.strip().splitlines() if line.strip()])}
+        {paragraphs_html}
         
+        <!-- افزودن پاورقی -->
         <div class="footer">
             {FOOTER_TEXT}
         </div>
@@ -78,12 +90,14 @@ def create_pdf_with_weasyprint(text_content):
     """
     
     try:
+        # 2. رندر کردن HTML به PDF
         html = HTML(string=html_template, base_url=BASE_DIR)
         pdf_bytes = html.write_pdf()
         print("--- PDF generated successfully with WeasyPrint ---")
         return io.BytesIO(pdf_bytes)
 
     except Exception:
+        # ... بلوک خطا ...
         print("🔥🔥🔥 WEASYPRINT FAILED! See traceback below. 🔥🔥🔥")
         print(traceback.format_exc())
         error_html = f"<h1>Error</h1><p>Could not generate PDF. Please check server logs.</p>"
@@ -95,8 +109,8 @@ def create_pdf_with_weasyprint(text_content):
 def create_docx(text_content):
     document = Document()
     p = document.add_paragraph(text_content)
-    # در ورد، تشخیص خودکار جهت متن پیچیده‌تر است و فعلا به صورت پیش‌فرض راست‌چین باقی می‌ماند
-    p.alignment = 3 
+    # در ورد، تشخیص خودکار سخت‌تر است و معمولاً کل سند یک جهت دارد
+    p.alignment = 3 # WD_ALIGN_PARAGRAPH.RIGHT
     footer = document.sections[0].footer
     footer_p = footer.paragraphs[0]
     footer_p.text = FOOTER_TEXT
