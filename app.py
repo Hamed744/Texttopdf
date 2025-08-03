@@ -1,13 +1,28 @@
 import os
 import io
 from flask import Flask, request, send_file, render_template
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
 
 app = Flask(__name__)
 
-# --- Plain Text (.txt) Generation ---
-def create_txt(text_content):
-    # This is a very simple function with no external dependencies
-    buffer = io.BytesIO(text_content.encode('utf-8'))
+# --- PDF Generation (Simple, no custom font) ---
+def create_pdf(text_content):
+    buffer = io.BytesIO()
+    p = canvas.Canvas(buffer, pagesize=letter)
+    p.setFont('Helvetica', 12) # Using a built-in font
+    
+    text_object = p.beginText()
+    text_object.setTextOrigin(100, 750) # LTR origin
+    text_object.setFont('Helvetica', 12)
+    
+    lines = text_content.split('\n')
+    for line in lines:
+        text_object.textLine(line)
+        
+    p.drawText(text_object)
+    p.showPage()
+    p.save()
     buffer.seek(0)
     return buffer
 
@@ -15,16 +30,13 @@ def create_txt(text_content):
 def index():
     if request.method == 'POST':
         content = request.form.get('content')
-        file_format = request.form.get('format', 'txt').lower() # We'll ignore the format for now
-        
         if not content:
             return "لطفا متنی برای تبدیل وارد کنید.", 400
         
         try:
-            # We only create .txt for this test
-            buffer = create_txt(content)
-            filename = 'test-export.txt'
-            mimetype = 'text/plain'
+            buffer = create_pdf(content)
+            filename = 'test-pdf-export.pdf'
+            mimetype = 'application/pdf'
 
             return send_file(
                 buffer,
@@ -33,9 +45,8 @@ def index():
                 mimetype=mimetype
             )
         except Exception as e:
-            # If even this fails, we can see the error in the logs
-            print(f"🔥🔥🔥 UNEXPECTED ERROR IN TXT CREATION: {e}")
-            return "یک خطای بسیار غیرمنتظره رخ داد.", 500
+            print(f"🔥🔥🔥 UNEXPECTED ERROR IN PDF CREATION: {e}")
+            return "خطا در ساخت PDF.", 500
 
     return render_template('index.html')
 
