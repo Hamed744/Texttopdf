@@ -1,4 +1,4 @@
-# app.py (نسخه نهایی با رویکرد یکپارچه برای حل مشکل قطع شدن متن)
+# app.py (نسخه نهایی در حالت تشخیصی برای حل قطعی مشکل)
 
 import os
 import io
@@ -29,29 +29,29 @@ def prepare_persian_text(text):
 
 def create_pdf(text_content):
     """
-    تابع ساخت PDF بازنویسی شده با رویکرد یکپارچه و قابل اطمینان
+    تابع ساخت PDF با رویکرد تشخیصی و کادر قابل مشاهده
     """
-    print("--- Starting PDF creation with robust, unified text block method ---")
+    print("--- Starting PDF creation [DIAGNOSTIC MODE] ---")
     pdf = FPDF()
     pdf.add_page()
     
     try:
-        # --- بخش تنظیم فونت (بدون تغییر) ---
         pdf.add_font('Vazir', '', FONT_PATH, uni=True)
-        # یک فونت ثابت برای کل متن تنظیم می‌کنیم
         pdf.set_font("Vazir", size=12)
         print("Font added and set successfully.")
         
-        # <<< تغییر کلیدی: پردازش و نوشتن کل متن در یک مرحله >>>
-        # کل متن ورودی را یکجا پردازش می‌کنیم
-        full_processed_text = prepare_persian_text(text_content.strip())
+        # 1. پردازش کل متن ورودی به صورت یکپارچه
+        # استفاده از splitlines() برای سازگاری با انواع خطوط جدید
+        cleaned_text = "\n".join(text_content.strip().splitlines())
+        full_processed_text = prepare_persian_text(cleaned_text)
         
-        # کل متن را با یک دستور multi_cell می‌نویسیم تا خود کتابخانه مدیریت صفحه را انجام دهد
-        pdf.multi_cell(0, 10, txt=full_processed_text, border=0, align='R')
+        # 2. نوشتن متن با یک کادر قابل مشاهده (border=1)
+        print("Writing text to multi_cell with a visible border...")
+        pdf.multi_cell(w=0, h=10, txt=full_processed_text, border=1, align='R')
         
-        print("--- PDF content written successfully ---")
+        print("--- Text writing finished. ---")
 
-        # --- افزودن پاورقی (بدون تغییر) ---
+        # 3. افزودن پاورقی
         pdf.set_y(-30)
         pdf.set_font("Vazir", size=10)
         pdf.set_text_color(0, 123, 255)
