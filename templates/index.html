@@ -16,8 +16,9 @@
             margin: auto;
         }
         textarea {
-            min-height: 200px;
+            min-height: 250px;
             resize: vertical;
+            font-family: 'Consolas', 'Courier New', monospace; /* فونت مونو اسپیس برای کدنویسی بهتر */
         }
         .grid {
             grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -31,20 +32,32 @@
             background-color: #0d7b9e;
             border-color: #0d7b9e;
         }
+        .hint {
+            font-size: 0.9rem;
+            color: #555;
+            background-color: #f7f7f7;
+            padding: 1rem;
+            border-radius: 5px;
+            margin-top: 0.5rem;
+        }
     </style>
 </head>
 <body>
     <main class="container">
         <header>
             <h1 style="text-align: center;">مبدل فایل آلفا 📝</h1>
-            <p style="text-align: center;">متن خود را وارد کرده و فرمت خروجی مورد نظر را انتخاب کنید.</p>
+            <p style="text-align: center;">متن خود را وارد کنید. برای PDF، می‌توانید از کدهای HTML استفاده کنید!</p>
         </header>
 
         <form action="/" method="post">
             <label for="content">متن شما:</label>
-            <textarea id="content" name="content" placeholder="متن خود را اینجا وارد کنید..." required></textarea>
+            <textarea id="content" name="content" placeholder="<h1>سلام دنیا</h1><p>این یک <b>متن آزمایشی</b> است که با <span style='color:red;'>رنگ قرمز</span> نوشته شده.</p><ul><li>آیتم اول</li><li>آیتم دوم</li></ul>" required></textarea>
+            
+            <div class="hint">
+                <strong>راهنما برای PDF:</strong> می‌توانید از تگ‌های HTML مانند <code><h1></code>, <code><p></code>, <code><b></code>, <code><i></code>, <code><ul></code>, <code><li></code> و حتی استایل‌دهی (مثلا <code>style='color:blue;'</code>) استفاده کنید.
+            </div>
 
-            <label>انتخاب فرمت خروجی:</label>
+            <label style="margin-top: 1.5rem;">انتخاب فرمت خروجی:</label>
             <div class="grid">
                 <label>
                     <input type="radio" name="format" value="txt" checked>
