@@ -11,9 +11,9 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from openpyxl import Workbook
 from openpyxl.styles import Alignment
 
-# --- کتابخانه‌های پردازش متن دو جهته ---
+# --- کتابخانه‌های پردازش متن فارسی (فقط موارد لازم) ---
 import arabic_reshaper
-from bidi.algorithm import get_display
+# bidi.algorithm دیگر لازم نیست و باید حذف شود.
 
 app = Flask(__name__)
 
@@ -22,46 +22,56 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FONT_FILE_NAME = "Vazirmatn-Regular.ttf"
 FOOTER_TEXT = "هوش مصنوعی آلفا دانلود از گوگل پلی"
 
-# --- توابع کمکی ---
+
+# --- توابع کمکی اصلاح‌شده ---
 
 def get_line_direction(line):
     """
     جهت اصلی یک خط را بر اساس وجود کاراکترهای فارسی/عربی تشخیص می‌دهد.
     """
+    # اگر خط خالی یا فقط حاوی فضای خالی است، آن را ltr در نظر بگیر
+    if not line or line.isspace():
+        return 'ltr'
     rtl_pattern = re.compile(r'[\u0600-\u06FF\u0750-\u077F]')
     return 'rtl' if rtl_pattern.search(line) else 'ltr'
 
-def process_rtl_line(line):
+def reshape_for_pdf(line):
     """
-    یک خط راست‌به‌چپ را برای نمایش صحیح، شکل‌دهی و بازچینی می‌کند.
+    فقط حروف فارسی را برای رندرهای مبتنی بر وب (مثل PDF) به هم می‌چسباند.
+    ترتیب کلمات به خود رندر واگذار می‌شود.
     """
-    reshaped_text = arabic_reshaper.reshape(line)
-    return get_display(reshaped_text)
+    return arabic_reshaper.reshape(line)
 
-# --- توابع اصلی ساخت فایل (منطق جدید و اصلاح‌شده) ---
+
+# --- توابع اصلی ساخت فایل (منطق نهایی) ---
 
 def create_pdf_with_weasyprint(text_content):
     """
-    PDF را با تعیین جهت و چینش برای هر خط به صورت مجزا ایجاد می‌کند.
+    PDF را با چسباندن حروف فارسی ایجاد کرده و وظیفه چینش را به WeasyPrint می‌سپارد.
     """
-    print("--- PDF Creation: Processing each line individually ---")
+    print("--- PDF Creation: Reshaping text and letting Pango engine handle Bidi ---")
     
     content_html_parts = []
     for line in text_content.split('\n'):
         direction = get_line_direction(line)
+        # برای خطوط خالی، یک فاصله غیرقابل شکستن اضافه می‌کنیم تا ارتفاع خط حفظ شود
+        if not line.strip():
+            content_html_parts.append('<div> </div>')
+            continue
+            
         if direction == 'rtl':
-            # خطوط فارسی/ترکیبی را پردازش و در یک div راست‌چین قرار بده
-            processed_line = process_rtl_line(line)
-            content_html_parts.append(f'<div class="rtl">{processed_line}</div>')
+            # فقط حروف را می‌چسبانیم. دیگر از get_display استفاده نمی‌کنیم.
+            reshaped_line = reshape_for_pdf(line)
+            content_html_parts.append(f'<div class="rtl">{reshaped_line}</div>')
         else:
-            # خطوط انگلیسی را دست‌نخورده در یک div چپ‌چین قرار بده
+            # خطوط انگلیسی دست‌نخورده باقی می‌مانند.
             content_html_parts.append(f'<div class="ltr">{line}</div>')
     
     final_html_content = "\n".join(content_html_parts)
     
     html_template = f"""
     <!DOCTYPE html>
-    <html lang="fa" dir="rtl">
+    <html lang="fa">
     <head>
         <meta charset="UTF-8">
         <style>
@@ -72,12 +82,12 @@ def create_pdf_with_weasyprint(text_content):
             body {{
                 font-family: 'Vazir', sans-serif;
                 font-size: 12pt;
-                line-height: 1.6;
+                line-height: 1.8;
             }}
-            /* کلید حل مشکل: استایل‌دهی مجزا برای هر جهت */
+            /* استایل‌دهی مجزا برای هر جهت */
             .rtl {{
                 text-align: right;
-                direction: rtl;
+                direction: rtl; /* این دستورالعمل به موتور رندر می‌گوید که الگوریتم Bidi را اعمال کند */
             }}
             .ltr {{
                 text-align: left;
@@ -91,7 +101,7 @@ def create_pdf_with_weasyprint(text_content):
     </head>
     <body>
         {final_html_content}
-        <div class="footer rtl">{process_rtl_line(FOOTER_TEXT)}</div>
+        <div class="footer rtl">{reshape_for_pdf(FOOTER_TEXT)}</div>
     </body>
     </html>
     """
@@ -102,62 +112,58 @@ def create_pdf_with_weasyprint(text_content):
         print(f"🔥🔥🔥 WEASYPRINT FAILED! 🔥🔥🔥\n{traceback.format_exc()}")
         return io.BytesIO(b"Error generating PDF.")
 
+
 def create_docx(text_content):
     """
-    DOCX را با تعیین جهت و چینش برای هر پاراگراف به صورت مجزا ایجاد می‌کند.
+    DOCX را با استفاده از متن خام ایجاد می‌کند. خود MS Word همه کارها را انجام می‌دهد.
     """
     document = Document()
     for line in text_content.split('\n'):
+        # نه به reshape نیاز است و نه به get_display
+        p = document.add_paragraph(line)
         direction = get_line_direction(line)
         
-        # اگر خط خالی است، فقط یک پاراگراف خالی اضافه کن
-        if not line.strip():
-            document.add_paragraph()
-            continue
-
         if direction == 'rtl':
-            processed_line = process_rtl_line(line)
-            p = document.add_paragraph(processed_line)
             p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
             p.paragraph_format.right_to_left = True
         else:
-            p = document.add_paragraph(line)
             p.alignment = WD_ALIGN_PARAGRAPH.LEFT
             p.paragraph_format.right_to_left = False
 
     footer = document.sections[0].footer
     footer_p = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
-    footer_p.text = process_rtl_line(FOOTER_TEXT)
+    footer_p.text = FOOTER_TEXT
     footer_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    footer_p.paragraph_format.right_to_left = True
     
     buffer = io.BytesIO()
     document.save(buffer)
     buffer.seek(0)
     return buffer
 
+
 def create_xlsx(text_content):
     """
-    XLSX را با تعیین جهت و چینش برای هر سلول به صورت مجزا ایجاد می‌کند.
+    XLSX را با استفاده از متن خام ایجاد می‌کند. خود MS Excel همه کارها را انجام می‌دهد.
     """
     workbook = Workbook()
     sheet = workbook.active
-    sheet.sheet_view.rightToLeft = True # نمای کلی شیت راست‌به‌چپ باشد
+    sheet.sheet_view.rightToLeft = True
 
     for i, line in enumerate(text_content.split('\n'), 1):
         cell = sheet[f'A{i}']
+        cell.value = line # متن خام و پردازش نشده
         direction = get_line_direction(line)
         
         if direction == 'rtl':
-            cell.value = process_rtl_line(line)
             cell.alignment = Alignment(horizontal='right', vertical='top', wrap_text=True)
         else:
-            cell.value = line
             cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
 
     footer_row = sheet.max_row + 3
     sheet.merge_cells(f'A{footer_row}:E{footer_row}')
     footer_cell = sheet[f'A{footer_row}']
-    footer_cell.value = process_rtl_line(FOOTER_TEXT)
+    footer_cell.value = FOOTER_TEXT
     footer_cell.alignment = Alignment(horizontal='center')
     
     buffer = io.BytesIO()
@@ -165,9 +171,11 @@ def create_xlsx(text_content):
     buffer.seek(0)
     return buffer
 
+
 def create_txt(text_content):
     full_content = f"{text_content}\n\n\n---\n{FOOTER_TEXT}"
     return io.BytesIO(full_content.encode('utf-8'))
+
 
 # --- توابع مربوط به Flask (بدون تغییر) ---
 def process_request(content, file_format):
@@ -189,6 +197,7 @@ def process_request(content, file_format):
         mimetype = 'text/plain'
     return send_file(buffer, as_attachment=True, download_name=filename, mimetype=mimetype)
 
+
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':
@@ -198,6 +207,7 @@ def index():
             return "لطفا متنی برای تبدیل وارد کنید.", 400
         return process_request(content, file_format)
     return render_template('index.html')
+
 
 if __name__ == '__main__':
     app.run(debug=True)
