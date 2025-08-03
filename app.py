@@ -1,4 +1,4 @@
-# app.py (نسخه نهایی و ساده‌شده)
+# app.py (نسخه نهایی با مسیر مطلق و وابستگی fonttools)
 
 import os
 import io
@@ -12,53 +12,59 @@ from openpyxl import Workbook
 
 app = Flask(__name__)
 
-# --- تعریف نام فایل فونت ---
-# مطمئن شوید این فایل در همان پوشه app.py قرار دارد
-FONT_FILE = "Vazirmatn-Regular.ttf"
+# --- محاسبه مسیر مطلق فایل فونت ---
+# این کد مسیر پوشه‌ای که app.py در آن قرار دارد را پیدا می‌کند
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# و نام فایل فونت را به آن اضافه می‌کند تا یک مسیر کامل و دقیق بسازد
+FONT_PATH = os.path.join(BASE_DIR, "Vazirmatn-Regular.ttf")
 
-# --- ساخت PDF با خواندن مستقیم فایل فونت ---
+# --- ساخت PDF با خواندن مستقیم فایل فونت از مسیر مطلق ---
 def create_pdf(text_content):
-    print("--- Starting PDF creation using file method ---")
+    print("--- Starting PDF creation with ABSOLUTE PATH method ---")
     pdf = FPDF()
     pdf.add_page()
     
     try:
-        print(f"Step 1: Adding font to FPDF from file: '{FONT_FILE}'...")
-        # fpdf2 مستقیماً فایل را از مسیر داده شده می‌خواند
-        pdf.add_font('Vazir', '', FONT_FILE, uni=True)
+        print(f"Attempting to load font from absolute path: {FONT_PATH}")
+        # بررسی می‌کنیم آیا فایل واقعاً در این مسیر وجود دارد یا نه
+        if not os.path.exists(FONT_PATH):
+            # اگر فایل پیدا نشود، یک خطای واضح و مشخص در لاگ چاپ می‌شود
+            raise FileNotFoundError(f"CRITICAL: Font file not found at path: {FONT_PATH}")
+
+        print("Font file found! Adding to FPDF...")
+        pdf.add_font('Vazir', '', FONT_PATH, uni=True)
         
-        print("Step 2: Setting PDF font to Vazir...")
+        print("Setting PDF font to Vazir...")
         pdf.set_font('Vazir', '', 12)
         pdf.set_right_to_left(True)
         print("--- Font embedding successful ---")
 
-    except Exception as e:
-        print("🔥🔥🔥 FONT EMBEDDING FAILED! 🔥🔥🔥")
-        # چاپ کامل خطا در لاگ برای دیباگ
+    except Exception:
+        print("🔥🔥🔥 FONT EMBEDDING FAILED! See traceback below. 🔥🔥🔥")
+        # چاپ کامل خطا در لاگ برای دیباگ نهایی
         print(traceback.format_exc())
         
         print("Falling back to default Arial font.")
         pdf.set_font('Arial', 'B', 12)
-        pdf.cell(0, 10, 'WARNING: Persian font could not be loaded. Check logs.', 0, 1, 'C')
+        pdf.cell(0, 10, 'WARNING: Persian font could not be loaded. Check server logs.', 0, 1, 'C')
         pdf.set_font('Arial', '', 12)
 
-    print("Step 3: Writing text content to PDF...")
-    # این قسمت حالا باید با فونت وزیر کار کند
+    print("Writing text content to PDF...")
     pdf.multi_cell(0, 10, text_content)
     
-    print("Step 4: Generating PDF output bytes...")
+    print("Generating PDF output bytes...")
     pdf_output = pdf.output()
     buffer = io.BytesIO(pdf_output)
     buffer.seek(0)
     print("--- PDF creation finished ---")
     return buffer
 
-# --- سایر توابع تولید فایل (بدون تغییر) ---
+# --- سایر توابع بدون تغییر ---
 def create_docx(text_content):
     buffer = io.BytesIO()
     document = Document()
     p = document.add_paragraph(text_content)
-    p.alignment = 3 # WD_ALIGN_PARAGRAPH.RIGHT
+    p.alignment = 3
     document.save(buffer)
     buffer.seek(0)
     return buffer
@@ -79,7 +85,7 @@ def create_xlsx(text_content):
     buffer.seek(0)
     return buffer
 
-# --- منطق اصلی پردازش درخواست (بدون تغییر) ---
+# --- منطق اصلی و روت‌ها (بدون تغییر) ---
 def process_request(content, file_format):
     try:
         if file_format == 'pdf':
@@ -110,7 +116,6 @@ def process_request(content, file_format):
         print(traceback.format_exc())
         return "An internal server error occurred while generating the file.", 500
 
-# --- روت‌های فلسک (بدون تغییر) ---
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':
