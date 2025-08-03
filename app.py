@@ -1,120 +1,136 @@
-# app.py (نسخه نهایی با مدیریت صحیح صفحات طولانی)
+# app.py (نسخه نهایی با کتابخانه قدرتمند WeasyPrint)
 
 import os
 import io
 import traceback
 from flask import Flask, request, jsonify, send_file, render_template
 
-# --- کتابخانه‌های ضروری برای فارسی (بدون تغییر) ---
-import arabic_reshaper
-from bidi.algorithm import get_display
+# --- کتابخانه جدید برای ساخت PDF ---
+from weasyprint import HTML, CSS
 
-from fpdf import FPDF
 from docx import Document
 from openpyxl import Workbook
+from openpyxl.styles import Alignment
 
 app = Flask(__name__)
 
-# --- مسیر فونت (بدون تغییر) ---
+# --- مسیر فونت و متن پاورقی (بدون تغییر) ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FONT_PATH = os.path.join(BASE_DIR, "Vazirmatn-Regular.ttf")
+FONT_FILE_NAME = "Vazirmatn-Regular.ttf"
+FOOTER_TEXT = "هوش مصنوعی آلفا دانلود از گوگل پلی"
 
-def prepare_persian_text(text):
-    """
-    تابع آماده‌سازی متن فارسی (بدون تغییر)
-    """
-    reshaped_text = arabic_reshaper.reshape(text)
-    bidi_text = get_display(reshaped_text)
-    return bidi_text
 
-def create_pdf(text_content):
+def create_pdf_with_weasyprint(text_content):
     """
-    تابع ساخت PDF بازنویسی شده برای پشتیبانی از متن‌های چند صفحه‌ای
+    با استفاده از WeasyPrint از متن یک PDF زیبا و بی‌نقص می‌سازد.
     """
-    print("--- Starting PDF creation with improved page-break handling ---")
-    pdf = FPDF()
-    pdf.add_page()
+    print("--- Starting PDF creation with WeasyPrint ---")
+    
+    # 1. ساخت یک قالب HTML کامل و زیبا با استفاده از CSS
+    html_template = f"""
+    <!DOCTYPE html>
+    <html lang="fa" dir="rtl">
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            /* تعریف فونت وزیر برای استفاده در کل سند */
+            @font-face {{
+                font-family: 'Vazir';
+                src: url('{FONT_FILE_NAME}');
+            }}
+
+            body {{
+                font-family: 'Vazir', sans-serif;
+                font-size: 12pt;
+                line-height: 1.8;
+            }}
+            
+            /* جدا کردن هر خط ورودی به عنوان یک پاراگراف مجزا */
+            p {{
+                margin-top: 0;
+                margin-bottom: 1em;
+            }}
+
+            /* استایل پاورقی */
+            .footer {{
+                position: fixed;
+                bottom: 10px;
+                left: 0;
+                right: 0;
+                text-align: center;
+                color: #007bff; /* آبی */
+                font-size: 10pt;
+            }}
+        </style>
+    </head>
+    <body>
+        <!-- تبدیل هر خط از متن ورودی به یک پاراگراف -->
+        {''.join([f'<p>{line}</p>' for line in text_content.strip().splitlines() if line.strip()])}
+        
+        <!-- افزودن پاورقی -->
+        <div class="footer">
+            {FOOTER_TEXT}
+        </div>
+    </body>
+    </html>
+    """
     
     try:
-        # --- بخش تنظیم فونت (بدون تغییر) ---
-        print(f"Loading font from: {FONT_PATH}")
-        if not os.path.exists(FONT_PATH):
-            raise FileNotFoundError(f"Font file not found at path: {FONT_PATH}")
-        pdf.add_font('Vazir', '', FONT_PATH, uni=True)
-        print("Font added successfully.")
-
-        # <<< تغییر کلیدی: پردازش متن به صورت یکپارچه >>>
-
-        # 1. جدا کردن تیتر از بدنه اصلی متن
-        lines = text_content.strip().split('\n')
-        title = lines[0].strip() if lines else ""
-        # تمام خطوط بعدی را به هم متصل می‌کنیم تا یک بدنه یکپارچه داشته باشیم
-        body = "\n".join(lines[1:]) if len(lines) > 1 else ""
-
-        # 2. پردازش و نوشتن تیتر (اگر وجود داشته باشد)
-        if title:
-            pdf.set_font("Vazir", size=18)
-            processed_title = prepare_persian_text(title)
-            pdf.cell(0, 15, txt=processed_title, border=0, ln=1, align='C')
-            pdf.ln(5) # ایجاد کمی فاصله بعد از تیتر
-
-        # 3. پردازش کل بدنه متن و نوشتن آن با یک دستور multi_cell
-        if body:
-            pdf.set_font("Vazir", size=12)
-            processed_body = prepare_persian_text(body)
-            # این روش به fpdf2 اجازه می‌دهد خودش صفحات را مدیریت کند
-            pdf.multi_cell(0, 10, txt=processed_body, border=0, align='R')
-
-        print("--- PDF content written successfully ---")
+        # 2. رندر کردن HTML به PDF
+        # base_url برای پیدا کردن فایل فونت ضروری است
+        html = HTML(string=html_template, base_url=BASE_DIR)
+        
+        # 3. خروجی گرفتن به صورت بایت
+        pdf_bytes = html.write_pdf()
+        print("--- PDF generated successfully with WeasyPrint ---")
+        return io.BytesIO(pdf_bytes)
 
     except Exception:
-        # بلوک مدیریت خطا (بدون تغییر)
-        print("🔥🔥🔥 PDF CREATION FAILED! See traceback below. 🔥🔥🔥")
+        # اگر خطایی رخ دهد، یک PDF ساده با پیام خطا می‌سازیم
+        print("🔥🔥🔥 WEASYPRINT FAILED! See traceback below. 🔥🔥🔥")
         print(traceback.format_exc())
-        
-        if not pdf.page_no():
-            pdf.add_page()
-        pdf.set_font('Arial', 'B', 12)
-        pdf.cell(0, 10, 'ERROR: Could not generate PDF. Please check server logs.', 0, 1, 'C')
-
-    print("Generating PDF output bytes...")
-    pdf_output = pdf.output()
-    buffer = io.BytesIO(pdf_output)
-    buffer.seek(0)
-    print("--- PDF creation finished ---")
-    return buffer
+        error_html = f"<h1>Error</h1><p>Could not generate PDF. Please check server logs.</p>"
+        return io.BytesIO(HTML(string=error_html).write_pdf())
 
 
-# --- بقیه فایل app.py (توابع دیگر و روت‌ها) بدون هیچ تغییری باقی می‌ماند ---
+# --- بقیه فایل app.py (بدون تغییر در منطق اصلی) ---
 
 def create_docx(text_content):
-    buffer = io.BytesIO()
     document = Document()
     p = document.add_paragraph(text_content)
     p.alignment = 3
+    footer = document.sections[0].footer
+    footer_p = footer.paragraphs[0]
+    footer_p.text = FOOTER_TEXT
+    footer_p.alignment = 1
+    buffer = io.BytesIO()
     document.save(buffer)
     buffer.seek(0)
     return buffer
 
 def create_txt(text_content):
-    buffer = io.BytesIO(text_content.encode('utf-8'))
-    buffer.seek(0)
-    return buffer
-
+    full_content = f"{text_content}\n\n\n---\n{FOOTER_TEXT}"
+    return io.BytesIO(full_content.encode('utf-8'))
+    
 def create_xlsx(text_content):
-    buffer = io.BytesIO()
     workbook = Workbook()
     sheet = workbook.active
     sheet.sheet_view.rightToLeft = True
     for i, line in enumerate(text_content.split('\n'), 1):
          sheet[f'A{i}'] = line
+    footer_row = sheet.max_row + 3
+    sheet.merge_cells(f'A{footer_row}:E{footer_row}')
+    footer_cell = sheet[f'A{footer_row}']
+    footer_cell.value = FOOTER_TEXT
+    footer_cell.alignment = Alignment(horizontal='center')
+    buffer = io.BytesIO()
     workbook.save(buffer)
     buffer.seek(0)
     return buffer
 
 def process_request(content, file_format):
     if file_format == 'pdf':
-        buffer = create_pdf(content)
+        buffer = create_pdf_with_weasyprint(content) # فراخوانی تابع جدید
         filename = 'export.pdf'
         mimetype = 'application/pdf'
     elif file_format == 'docx':
