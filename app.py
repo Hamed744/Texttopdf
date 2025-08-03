@@ -1,4 +1,4 @@
-# app.py (نسخه نهایی با اصلاح مشکل قطع شدن متن)
+# app.py (نسخه نهایی با رویکرد یکپارچه برای حل مشکل قطع شدن متن)
 
 import os
 import io
@@ -28,32 +28,29 @@ def prepare_persian_text(text):
     return bidi_text
 
 def create_pdf(text_content):
-    """ساخت PDF با اصلاح مشکل قطع شدن متن"""
-    print("--- Starting PDF creation with correct title handling ---")
+    """
+    تابع ساخت PDF بازنویسی شده با رویکرد یکپارچه و قابل اطمینان
+    """
+    print("--- Starting PDF creation with robust, unified text block method ---")
     pdf = FPDF()
     pdf.add_page()
     
     try:
+        # --- بخش تنظیم فونت (بدون تغییر) ---
         pdf.add_font('Vazir', '', FONT_PATH, uni=True)
+        # یک فونت ثابت برای کل متن تنظیم می‌کنیم
+        pdf.set_font("Vazir", size=12)
+        print("Font added and set successfully.")
         
-        lines = text_content.strip().split('\n')
-        title = lines[0].strip() if lines else ""
-        body = "\n".join(lines[1:]) if len(lines) > 1 else ""
-
-        # <<< تغییر کلیدی و راه‌حل نهایی >>>
-        # برای نوشتن تیتر از multi_cell استفاده می‌کنیم تا متن‌های طولانی به درستی نمایش داده شوند
-        if title:
-            pdf.set_font("Vazir", size=18)
-            processed_title = prepare_persian_text(title)
-            # استفاده از multi_cell به جای cell
-            pdf.multi_cell(0, 15, txt=processed_title, border=0, align='C') 
-            pdf.ln(5)
-
-        if body:
-            pdf.set_font("Vazir", size=12)
-            processed_body = prepare_persian_text(body)
-            pdf.multi_cell(0, 10, txt=processed_body, border=0, align='R')
+        # <<< تغییر کلیدی: پردازش و نوشتن کل متن در یک مرحله >>>
+        # کل متن ورودی را یکجا پردازش می‌کنیم
+        full_processed_text = prepare_persian_text(text_content.strip())
         
+        # کل متن را با یک دستور multi_cell می‌نویسیم تا خود کتابخانه مدیریت صفحه را انجام دهد
+        pdf.multi_cell(0, 10, txt=full_processed_text, border=0, align='R')
+        
+        print("--- PDF content written successfully ---")
+
         # --- افزودن پاورقی (بدون تغییر) ---
         pdf.set_y(-30)
         pdf.set_font("Vazir", size=10)
@@ -73,7 +70,7 @@ def create_pdf(text_content):
     return io.BytesIO(pdf_output)
 
 # --- بقیه فایل app.py (توابع دیگر و روت‌ها) بدون هیچ تغییری باقی می‌ماند ---
-# (کدهای create_docx, create_txt, create_xlsx, process_request, و روت‌های Flask اینجا قرار دارند و نیازی به کپی مجدد نیست)
+
 def create_docx(text_content):
     document = Document()
     p = document.add_paragraph(text_content)
