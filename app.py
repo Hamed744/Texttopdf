@@ -2,62 +2,46 @@ import os
 import io
 from flask import Flask, request, jsonify, send_file, render_template
 
-# Import libraries for file generation
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.pdfbase import pdfmetrics
+# Import new library for PDF and other libraries
+from fpdf import FPDF
 from docx import Document
 from openpyxl import Workbook
 
 app = Flask(__name__)
 
 # --- Final and Robust Font Loading ---
-FONT_NAME = 'Vazir'
 FONT_FILE_NAME = 'Vazirmatn-Regular.ttf'
-FONT_LOADED_SUCCESSFULLY = False
-
-# Get the absolute path to the directory where this script is located
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# Create the full, absolute path to the font file
 FONT_PATH = os.path.join(BASE_DIR, FONT_FILE_NAME)
 
-try:
-    if os.path.exists(FONT_PATH):
-        pdfmetrics.registerFont(TTFont(FONT_NAME, FONT_PATH))
-        FONT_LOADED_SUCCESSFULLY = True
-    # The print statements will appear in Render's Logs
-except Exception as e:
-    print(f"❌ ERROR LOADING FONT: {e}")
-
-
+# --- PDF Generation with fpdf2 ---
 def create_pdf(text_content):
-    buffer = io.BytesIO()
-    p = canvas.Canvas(buffer, pagesize=letter)
+    pdf = FPDF()
+    pdf.add_page()
     
-    font_to_use = FONT_NAME if FONT_LOADED_SUCCESSFULLY else 'Helvetica'
-    p.setFont(font_to_use, 12)
-    
-    if FONT_LOADED_SUCCESSFULLY:
-        p.setRTL()
-        text_object = p.beginText()
-        text_object.setTextOrigin(letter[0] - 100, letter[1] - 100)
+    # Check if font exists and add it
+    if os.path.exists(FONT_PATH):
+        pdf.add_font('Vazir', '', FONT_PATH, uni=True)
+        pdf.set_font('Vazir', '', 12)
     else:
-        text_object = p.beginText()
-        text_object.setTextOrigin(100, letter[1] - 100)
-        
-    text_object.setFont(font_to_use, 12)
+        # Fallback to a default font if Vazir is not found
+        pdf.set_font('Arial', '', 12)
+        # Add a warning to the PDF itself
+        pdf.cell(0, 10, 'WARNING: Persian font not found. Text may not render correctly.', 0, 1, 'C')
+
+    # Set text direction to Right-to-Left
+    pdf.set_right_to_left(True)
     
-    lines = text_content.split('\n')
-    for line in lines:
-        text_object.textLine(line)
-        
-    p.drawText(text_object)
-    p.showPage()
-    p.save()
+    # Use multi_cell to automatically handle line breaks
+    pdf.multi_cell(0, 10, text_content)
+    
+    # Generate the PDF in memory
+    pdf_output = pdf.output(dest='S').encode('latin-1')
+    buffer = io.BytesIO(pdf_output)
     buffer.seek(0)
     return buffer
 
+# --- Other file generation functions (no changes needed) ---
 def create_docx(text_content):
     buffer = io.BytesIO()
     document = Document()
@@ -83,6 +67,7 @@ def create_xlsx(text_content):
     buffer.seek(0)
     return buffer
 
+# --- Main request processing logic (no changes needed) ---
 def process_request(content, file_format):
     if file_format == 'pdf':
         buffer = create_pdf(content)
@@ -108,6 +93,7 @@ def process_request(content, file_format):
         mimetype=mimetype
     )
 
+# --- Flask routes (no changes needed) ---
 @app.route('/convert', methods=['POST'])
 def convert_text_api():
     try:
@@ -134,37 +120,6 @@ def index():
             print(f"🔥🔥🔥 Web Form Error: {e}")
             return "Internal Server Error", 500
     return render_template('index.html')
-
-# --- NEW DEBUG ROUTE ---
-@app.route('/debug')
-def debug_info():
-    info = []
-    info.append("--- DEBUG INFORMATION ---")
-    info.append(f"Current Working Directory: {os.getcwd()}")
-    info.append(f"Base Directory (where app.py is): {BASE_DIR}")
-    info.append(f"Full Font Path to check: {FONT_PATH}")
-
-    if os.path.exists(FONT_PATH):
-        info.append("✅ SUCCESS: Font file was found at the specified path.")
-        if os.access(FONT_PATH, os.R_OK):
-            info.append("✅ SUCCESS: Application has READ permission for the font file.")
-        else:
-            info.append("❌ ERROR: Font file exists but application does NOT have READ permission.")
-    else:
-        info.append("❌ ERROR: Font file was NOT found at the specified path.")
-    
-    info.append("\n--- Files in Base Directory ---")
-    try:
-        files_in_dir = os.listdir(BASE_DIR)
-        if not files_in_dir:
-            info.append("(Directory seems empty)")
-        else:
-            for f in files_in_dir:
-                info.append(f)
-    except Exception as e:
-        info.append(f"Could not list directory contents: {e}")
-
-    return f"<pre>{'<br>'.join(info)}</pre>"
 
 
 if __name__ == '__main__':
