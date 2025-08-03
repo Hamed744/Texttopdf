@@ -23,15 +23,12 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FONT_PATH = os.path.join(BASE_DIR, FONT_FILE_NAME)
 
 try:
-    # Check if the file exists at the absolute path
     if os.path.exists(FONT_PATH):
         pdfmetrics.registerFont(TTFont(FONT_NAME, FONT_PATH))
         FONT_LOADED_SUCCESSFULLY = True
-        print(f"✅ فونت '{FONT_NAME}' با موفقیت از مسیر مطلق بارگذاری شد: {FONT_PATH}")
-    else:
-        print(f"⚠️ هشدار: فایل فونت در مسیر مطلق یافت نشد: {FONT_PATH}")
+    # The print statements will appear in Render's Logs
 except Exception as e:
-    print(f"❌ خطا در بارگذاری فونت از مسیر مطلق: {e}")
+    print(f"❌ ERROR LOADING FONT: {e}")
 
 
 def create_pdf(text_content):
@@ -137,6 +134,38 @@ def index():
             print(f"🔥🔥🔥 Web Form Error: {e}")
             return "Internal Server Error", 500
     return render_template('index.html')
+
+# --- NEW DEBUG ROUTE ---
+@app.route('/debug')
+def debug_info():
+    info = []
+    info.append("--- DEBUG INFORMATION ---")
+    info.append(f"Current Working Directory: {os.getcwd()}")
+    info.append(f"Base Directory (where app.py is): {BASE_DIR}")
+    info.append(f"Full Font Path to check: {FONT_PATH}")
+
+    if os.path.exists(FONT_PATH):
+        info.append("✅ SUCCESS: Font file was found at the specified path.")
+        if os.access(FONT_PATH, os.R_OK):
+            info.append("✅ SUCCESS: Application has READ permission for the font file.")
+        else:
+            info.append("❌ ERROR: Font file exists but application does NOT have READ permission.")
+    else:
+        info.append("❌ ERROR: Font file was NOT found at the specified path.")
+    
+    info.append("\n--- Files in Base Directory ---")
+    try:
+        files_in_dir = os.listdir(BASE_DIR)
+        if not files_in_dir:
+            info.append("(Directory seems empty)")
+        else:
+            for f in files_in_dir:
+                info.append(f)
+    except Exception as e:
+        info.append(f"Could not list directory contents: {e}")
+
+    return f"<pre>{'<br>'.join(info)}</pre>"
+
 
 if __name__ == '__main__':
     app.run(debug=True)
