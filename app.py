@@ -1,35 +1,56 @@
-# app.py (نسخه نهایی و قطعی با تگ <pre> برای حل تمام مشکلات)
-
 import os
 import io
 import traceback
-from flask import Flask, request, jsonify, send_file, render_template
+from flask import Flask, request, send_file, render_template
 
-# --- کتابخانه برای ساخت PDF ---
+# --- کتابخانه‌های استاندارد ساخت فایل ---
 from weasyprint import HTML, CSS
-
 from docx import Document
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from openpyxl import Workbook
 from openpyxl.styles import Alignment
+
+# --- کتابخانه‌های کلیدی برای پردازش متن دو جهته (فارسی/انگلیسی) ---
+import arabic_reshaper
+from bidi.algorithm import get_display
 
 app = Flask(__name__)
 
 # --- مسیر فونت و متن پاورقی (بدون تغییر) ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FONT_FILE_NAME = "Vazirmatn-Regular.ttf"
+# مهم: برای پردازش صحیح، فونتی که از فارسی پشتیبانی می‌کند حیاتی است.
+FONT_FILE_NAME = "Vazirmatn-Regular.ttf" 
 FOOTER_TEXT = "هوش مصنوعی آلفا دانلود از گوگل پلی"
 
 
+# --- تابع کمکی جدید برای پردازش و بازچینی متن ---
+def process_bidi_text(text):
+    """
+    متن ورودی را با استفاده از کتابخانه‌های تخصصی برای نمایش صحیح bidi پردازش می‌کند.
+    این تابع حروف فارسی را به هم متصل کرده و ترتیب کلمات را درست می‌کند.
+    """
+    # 1. شکل‌دهی به حروف عربی/فارسی (مثلاً 'س ل ا م' را به 'سلام' تبدیل می‌کند)
+    reshaped_text = arabic_reshaper.reshape(text)
+    # 2. بازچینی متن برای نمایش صحیح در محیط‌های چپ‌چین (LTR)
+    bidi_text = get_display(reshaped_text)
+    return bidi_text
+
+
+# --- توابع ساخت فایل (اصلاح شده با منطق Bidi) ---
+
 def create_pdf_with_weasyprint(text_content):
     """
-    با استفاده از WeasyPrint و تگ <pre> یک PDF بی‌نقص و قابل اطمینان می‌سازد.
+    یک فایل PDF با پردازش دقیق Bidi برای هر خط ایجاد می‌کند.
     """
-    print("--- Starting PDF creation with robust <pre> tag method ---")
+    print("--- Starting PDF creation with advanced Bidi processing ---")
     
-    # 1. ساخت قالب HTML با رویکردی بسیار ساده‌تر
+    # پردازش هر خط به صورت جداگانه برای حفظ ساختار
+    processed_lines = [process_bidi_text(line) for line in text_content.split('\n')]
+    # تبدیل لیست خطوط به یک رشته HTML با تگ‌های <br>
+    html_content = "<br>".join(processed_lines)
+
     html_template = f"""
     <!DOCTYPE html>
-    <!-- << تغییر کلیدی: جهت اصلی کل سند را راست‌به‌چپ تنظیم می‌کنیم >> -->
     <html lang="fa" dir="rtl">
     <head>
         <meta charset="UTF-8">
@@ -38,42 +59,29 @@ def create_pdf_with_weasyprint(text_content):
                 font-family: 'Vazir';
                 src: url('{FONT_FILE_NAME}');
             }}
-
             body {{
                 font-family: 'Vazir', sans-serif;
                 font-size: 12pt;
                 line-height: 1.8;
+                text-align: right; /* چینش پیش‌فرض برای کل صفحه */
             }}
-            
-            /* << تغییر کلیدی: استایل‌دهی به تگ <pre> >> */
-            pre {{
-                /* این باعث می‌شود از فونت وزیر استفاده کند */
-                font-family: inherit; 
-                /* این باعث می‌شود خطوط طولانی به درستی شکسته شوند */
-                white-space: pre-wrap; 
-                /* تمام متن را راست‌چین می‌کند */
-                text-align: right;
+            /* استفاده از تگ div به جای pre برای کنترل بهتر */
+            div.content {{
+                white-space: pre-wrap; /* شکستن خطوط حفظ شود */
+                direction: rtl;
             }}
-
-            /* استایل پاورقی (بدون تغییر) */
             .footer {{
                 position: fixed;
-                bottom: 10px;
-                left: 0;
-                right: 0;
+                bottom: 10px; left: 0; right: 0;
                 text-align: center;
-                color: #007bff; /* آبی */
+                color: #007bff;
                 font-size: 10pt;
             }}
         </style>
     </head>
     <body>
-        <!-- کل متن ورودی کاربر را در یک تگ <pre> قرار می‌دهیم -->
-        <pre>{text_content.strip()}</pre>
-        
-        <div class="footer">
-            {FOOTER_TEXT}
-        </div>
+        <div class="content">{html_content}</div>
+        <div class="footer">{process_bidi_text(FOOTER_TEXT)}</div>
     </body>
     </html>
     """
@@ -81,51 +89,75 @@ def create_pdf_with_weasyprint(text_content):
     try:
         html = HTML(string=html_template, base_url=BASE_DIR)
         pdf_bytes = html.write_pdf()
-        print("--- PDF generated successfully with WeasyPrint ---")
+        print("--- PDF generated successfully with Bidi processing ---")
         return io.BytesIO(pdf_bytes)
-
     except Exception:
-        # ... بلوک خطا ...
         print("🔥🔥🔥 WEASYPRINT FAILED! See traceback below. 🔥🔥🔥")
         print(traceback.format_exc())
-        error_html = f"<h1>Error</h1><p>Could not generate PDF. Please check server logs.</p>"
+        error_html = "<h1>Error</h1><p>Could not generate PDF. Please check server logs.</p>"
         return io.BytesIO(HTML(string=error_html).write_pdf())
 
 
-# --- بقیه فایل app.py (توابع دیگر و روت‌ها) بدون هیچ تغییری باقی می‌ماند ---
-
 def create_docx(text_content):
+    """
+    یک فایل DOCX با پردازش Bidi برای هر پاراگراف ایجاد می‌کند.
+    """
     document = Document()
-    p = document.add_paragraph(text_content)
-    p.alignment = 3 
+    
+    for line in text_content.split('\n'):
+        # پردازش هر خط به صورت جداگانه
+        processed_line = process_bidi_text(line)
+        p = document.add_paragraph(processed_line)
+        # همیشه پاراگراف را راست‌چین می‌کنیم، چون get_display ترتیب را درست کرده است
+        p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+
     footer = document.sections[0].footer
-    footer_p = footer.paragraphs[0]
-    footer_p.text = FOOTER_TEXT
-    footer_p.alignment = 1
+    footer_p = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+    footer_p.text = process_bidi_text(FOOTER_TEXT)
+    footer_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
     buffer = io.BytesIO()
     document.save(buffer)
     buffer.seek(0)
     return buffer
 
+
 def create_txt(text_content):
+    """
+    یک فایل TXT ساده ایجاد می‌کند. پردازش Bidi برای TXT معمولاً لازم نیست
+    چون نمایش آن به ویرایشگر متن کاربر بستگی دارد.
+    """
     full_content = f"{text_content}\n\n\n---\n{FOOTER_TEXT}"
     return io.BytesIO(full_content.encode('utf-8'))
+
     
 def create_xlsx(text_content):
+    """
+    یک فایل XLSX با پردازش Bidi برای هر سلول ایجاد می‌کند.
+    """
     workbook = Workbook()
     sheet = workbook.active
-    sheet.sheet_view.rightToLeft = True
+    sheet.sheet_view.rightToLeft = True # شیت را راست‌به‌چپ می‌کنیم
+
     for i, line in enumerate(text_content.split('\n'), 1):
-         sheet[f'A{i}'] = line
+        cell = sheet[f'A{i}']
+        cell.value = process_bidi_text(line) # متن پردازش شده را در سلول قرار می‌دهیم
+        # چینش را راست می‌گذاریم
+        cell.alignment = Alignment(horizontal='right', vertical='top', wrap_text=True)
+
     footer_row = sheet.max_row + 3
     sheet.merge_cells(f'A{footer_row}:E{footer_row}')
     footer_cell = sheet[f'A{footer_row}']
-    footer_cell.value = FOOTER_TEXT
+    footer_cell.value = process_bidi_text(FOOTER_TEXT)
     footer_cell.alignment = Alignment(horizontal='center')
+    
     buffer = io.BytesIO()
     workbook.save(buffer)
     buffer.seek(0)
     return buffer
+
+
+# --- توابع مربوط به Flask (بدون تغییر) ---
 
 def process_request(content, file_format):
     if file_format == 'pdf':
@@ -144,7 +176,9 @@ def process_request(content, file_format):
         buffer = create_txt(content)
         filename = 'export.txt'
         mimetype = 'text/plain'
+        
     return send_file(buffer, as_attachment=True, download_name=filename, mimetype=mimetype)
+
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
@@ -155,6 +189,7 @@ def index():
             return "لطفا متنی برای تبدیل وارد کنید.", 400
         return process_request(content, file_format)
     return render_template('index.html')
+
 
 if __name__ == '__main__':
     app.run(debug=True)
