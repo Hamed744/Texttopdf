@@ -1,105 +1,113 @@
-# app.py (نسخه نهایی در حالت تشخیصی برای حل قطعی مشکل)
+# app.py (نسخه نهایی با مدیریت صحیح صفحات طولانی)
 
 import os
 import io
 import traceback
 from flask import Flask, request, jsonify, send_file, render_template
 
-# --- کتابخانه‌ها (بدون تغییر) ---
+# --- کتابخانه‌های ضروری برای فارسی (بدون تغییر) ---
 import arabic_reshaper
 from bidi.algorithm import get_display
 
 from fpdf import FPDF
 from docx import Document
 from openpyxl import Workbook
-from openpyxl.styles import Alignment
 
 app = Flask(__name__)
 
-# --- مسیر فونت و متن پاورقی (بدون تغییر) ---
+# --- مسیر فونت (بدون تغییر) ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FONT_PATH = os.path.join(BASE_DIR, "Vazirmatn-Regular.ttf")
-FOOTER_TEXT = "هوش مصنوعی آلفا دانلود از گوگل پلی"
 
 def prepare_persian_text(text):
-    """تابع آماده‌سازی متن فارسی (بدون تغییر)"""
+    """
+    تابع آماده‌سازی متن فارسی (بدون تغییر)
+    """
     reshaped_text = arabic_reshaper.reshape(text)
     bidi_text = get_display(reshaped_text)
     return bidi_text
 
 def create_pdf(text_content):
     """
-    تابع ساخت PDF با رویکرد تشخیصی و کادر قابل مشاهده
+    تابع ساخت PDF بازنویسی شده برای پشتیبانی از متن‌های چند صفحه‌ای
     """
-    print("--- Starting PDF creation [DIAGNOSTIC MODE] ---")
+    print("--- Starting PDF creation with improved page-break handling ---")
     pdf = FPDF()
     pdf.add_page()
     
     try:
+        # --- بخش تنظیم فونت (بدون تغییر) ---
+        print(f"Loading font from: {FONT_PATH}")
+        if not os.path.exists(FONT_PATH):
+            raise FileNotFoundError(f"Font file not found at path: {FONT_PATH}")
         pdf.add_font('Vazir', '', FONT_PATH, uni=True)
-        pdf.set_font("Vazir", size=12)
-        print("Font added and set successfully.")
-        
-        # 1. پردازش کل متن ورودی به صورت یکپارچه
-        # استفاده از splitlines() برای سازگاری با انواع خطوط جدید
-        cleaned_text = "\n".join(text_content.strip().splitlines())
-        full_processed_text = prepare_persian_text(cleaned_text)
-        
-        # 2. نوشتن متن با یک کادر قابل مشاهده (border=1)
-        print("Writing text to multi_cell with a visible border...")
-        pdf.multi_cell(w=0, h=10, txt=full_processed_text, border=1, align='R')
-        
-        print("--- Text writing finished. ---")
+        print("Font added successfully.")
 
-        # 3. افزودن پاورقی
-        pdf.set_y(-30)
-        pdf.set_font("Vazir", size=10)
-        pdf.set_text_color(0, 123, 255)
-        processed_footer = prepare_persian_text(FOOTER_TEXT)
-        pdf.cell(0, 10, txt=processed_footer, border=0, ln=1, align='C')
-        
+        # <<< تغییر کلیدی: پردازش متن به صورت یکپارچه >>>
+
+        # 1. جدا کردن تیتر از بدنه اصلی متن
+        lines = text_content.strip().split('\n')
+        title = lines[0].strip() if lines else ""
+        # تمام خطوط بعدی را به هم متصل می‌کنیم تا یک بدنه یکپارچه داشته باشیم
+        body = "\n".join(lines[1:]) if len(lines) > 1 else ""
+
+        # 2. پردازش و نوشتن تیتر (اگر وجود داشته باشد)
+        if title:
+            pdf.set_font("Vazir", size=18)
+            processed_title = prepare_persian_text(title)
+            pdf.cell(0, 15, txt=processed_title, border=0, ln=1, align='C')
+            pdf.ln(5) # ایجاد کمی فاصله بعد از تیتر
+
+        # 3. پردازش کل بدنه متن و نوشتن آن با یک دستور multi_cell
+        if body:
+            pdf.set_font("Vazir", size=12)
+            processed_body = prepare_persian_text(body)
+            # این روش به fpdf2 اجازه می‌دهد خودش صفحات را مدیریت کند
+            pdf.multi_cell(0, 10, txt=processed_body, border=0, align='R')
+
+        print("--- PDF content written successfully ---")
+
     except Exception:
-        # ... بلوک خطا ...
+        # بلوک مدیریت خطا (بدون تغییر)
         print("🔥🔥🔥 PDF CREATION FAILED! See traceback below. 🔥🔥🔥")
         print(traceback.format_exc())
-        if not pdf.page_no(): pdf.add_page()
+        
+        if not pdf.page_no():
+            pdf.add_page()
         pdf.set_font('Arial', 'B', 12)
         pdf.cell(0, 10, 'ERROR: Could not generate PDF. Please check server logs.', 0, 1, 'C')
 
+    print("Generating PDF output bytes...")
     pdf_output = pdf.output()
-    return io.BytesIO(pdf_output)
+    buffer = io.BytesIO(pdf_output)
+    buffer.seek(0)
+    print("--- PDF creation finished ---")
+    return buffer
+
 
 # --- بقیه فایل app.py (توابع دیگر و روت‌ها) بدون هیچ تغییری باقی می‌ماند ---
 
 def create_docx(text_content):
+    buffer = io.BytesIO()
     document = Document()
     p = document.add_paragraph(text_content)
     p.alignment = 3
-    footer = document.sections[0].footer
-    footer_p = footer.paragraphs[0]
-    footer_p.text = FOOTER_TEXT
-    footer_p.alignment = 1
-    buffer = io.BytesIO()
     document.save(buffer)
     buffer.seek(0)
     return buffer
 
 def create_txt(text_content):
-    full_content = f"{text_content}\n\n\n---\n{FOOTER_TEXT}"
-    return io.BytesIO(full_content.encode('utf-8'))
-    
+    buffer = io.BytesIO(text_content.encode('utf-8'))
+    buffer.seek(0)
+    return buffer
+
 def create_xlsx(text_content):
+    buffer = io.BytesIO()
     workbook = Workbook()
     sheet = workbook.active
     sheet.sheet_view.rightToLeft = True
     for i, line in enumerate(text_content.split('\n'), 1):
          sheet[f'A{i}'] = line
-    footer_row = sheet.max_row + 3
-    sheet.merge_cells(f'A{footer_row}:E{footer_row}')
-    footer_cell = sheet[f'A{footer_row}']
-    footer_cell.value = FOOTER_TEXT
-    footer_cell.alignment = Alignment(horizontal='center')
-    buffer = io.BytesIO()
     workbook.save(buffer)
     buffer.seek(0)
     return buffer
