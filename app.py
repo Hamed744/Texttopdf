@@ -1,4 +1,4 @@
-# app.py (نسخه نهایی با ساختار تیتر/پاراگراف برای حل باگ رندرینگ)
+# app.py (نسخه نهایی و قطعی با تگ <pre> برای حل تمام مشکلات)
 
 import os
 import io
@@ -22,26 +22,15 @@ FOOTER_TEXT = "هوش مصنوعی آلفا دانلود از گوگل پلی"
 
 def create_pdf_with_weasyprint(text_content):
     """
-    با استفاده از WeasyPrint یک PDF بی‌نقص با ساختار تیتر و پاراگراف می‌سازد.
+    با استفاده از WeasyPrint و تگ <pre> یک PDF بی‌نقص و قابل اطمینان می‌سازد.
     """
-    print("--- Starting PDF creation with Heading/Paragraph structure ---")
+    print("--- Starting PDF creation with robust <pre> tag method ---")
     
-    lines = text_content.strip().splitlines()
-    
-    # <<< تغییر کلیدی: جدا کردن خط اول به عنوان تیتر >>>
-    heading_html = ""
-    # اگر متنی وجود داشته باشد و خط اول خالی نباشد
-    if lines and lines[0].strip():
-        # خط اول را در یک تگ h2 (تیتر) قرار می‌دهیم
-        heading_html = f'<h2 dir="auto">{lines[0].strip()}</h2>'
-
-    # پردازش بقیه خطوط به عنوان پاراگراف
-    paragraphs_html = ''.join([f'<p dir="auto">{line.strip()}</p>' for line in lines[1:] if line.strip()])
-    
-    # 1. ساخت قالب HTML کامل با استایل‌های جدید برای تیتر
+    # 1. ساخت قالب HTML با رویکردی بسیار ساده‌تر
     html_template = f"""
     <!DOCTYPE html>
-    <html lang="fa">
+    <!-- << تغییر کلیدی: جهت اصلی کل سند را راست‌به‌چپ تنظیم می‌کنیم >> -->
+    <html lang="fa" dir="rtl">
     <head>
         <meta charset="UTF-8">
         <style>
@@ -56,26 +45,14 @@ def create_pdf_with_weasyprint(text_content):
                 line-height: 1.8;
             }}
             
-            /* استایل جدید برای تیتر */
-            h2 {{
-                font-size: 16pt;
-                color: #333;
-                border-bottom: 1px solid #eee;
-                padding-bottom: 10px;
-                margin-bottom: 24px;
-            }}
-            
-            p {{
-                margin-top: 0;
-                margin-bottom: 1em;
-            }}
-
-            /* استایل هوشمند برای چینش متن (برای تیتر و پاراگراف) */
-            *[dir="rtl"] {{
+            /* << تغییر کلیدی: استایل‌دهی به تگ <pre> >> */
+            pre {{
+                /* این باعث می‌شود از فونت وزیر استفاده کند */
+                font-family: inherit; 
+                /* این باعث می‌شود خطوط طولانی به درستی شکسته شوند */
+                white-space: pre-wrap; 
+                /* تمام متن را راست‌چین می‌کند */
                 text-align: right;
-            }}
-            *[dir="ltr"] {{
-                text-align: left;
             }}
 
             /* استایل پاورقی (بدون تغییر) */
@@ -87,13 +64,12 @@ def create_pdf_with_weasyprint(text_content):
                 text-align: center;
                 color: #007bff; /* آبی */
                 font-size: 10pt;
-                direction: rtl;
             }}
         </style>
     </head>
     <body>
-        {heading_html}
-        {paragraphs_html}
+        <!-- کل متن ورودی کاربر را در یک تگ <pre> قرار می‌دهیم -->
+        <pre>{text_content.strip()}</pre>
         
         <div class="footer">
             {FOOTER_TEXT}
