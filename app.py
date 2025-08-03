@@ -1,4 +1,4 @@
-# app.py (نسخه نهایی با مسیر مطلق و وابستگی fonttools)
+# app.py (نسخه نهایی با قابلیت رندر HTML)
 
 import os
 import io
@@ -12,46 +12,40 @@ from openpyxl import Workbook
 
 app = Flask(__name__)
 
-# --- محاسبه مسیر مطلق فایل فونت ---
-# این کد مسیر پوشه‌ای که app.py در آن قرار دارد را پیدا می‌کند
+# --- محاسبه مسیر مطلق فایل فونت (بدون تغییر) ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# و نام فایل فونت را به آن اضافه می‌کند تا یک مسیر کامل و دقیق بسازد
 FONT_PATH = os.path.join(BASE_DIR, "Vazirmatn-Regular.ttf")
 
-# --- ساخت PDF با خواندن مستقیم فایل فونت از مسیر مطلق ---
-def create_pdf(text_content):
-    print("--- Starting PDF creation with ABSOLUTE PATH method ---")
+# --- ساخت PDF با رندر مستقیم HTML ---
+def create_pdf(html_content):
+    print("--- Starting PDF creation using HTML rendering method ---")
     pdf = FPDF()
     pdf.add_page()
     
     try:
-        print(f"Attempting to load font from absolute path: {FONT_PATH}")
-        # بررسی می‌کنیم آیا فایل واقعاً در این مسیر وجود دارد یا نه
+        print(f"Loading font from: {FONT_PATH}")
         if not os.path.exists(FONT_PATH):
-            # اگر فایل پیدا نشود، یک خطای واضح و مشخص در لاگ چاپ می‌شود
-            raise FileNotFoundError(f"CRITICAL: Font file not found at path: {FONT_PATH}")
+            raise FileNotFoundError(f"Font file not found at path: {FONT_PATH}")
 
-        print("Font file found! Adding to FPDF...")
+        # فونت را اضافه می‌کنیم تا در HTML قابل استفاده باشد
         pdf.add_font('Vazir', '', FONT_PATH, uni=True)
+        print("Font added successfully.")
+
+        # <<< تغییر کلیدی: استفاده از write_html >>>
+        # این تابع به صورت هوشمند متن را بر اساس تگ‌های HTML می‌چیند
+        # و از آنجایی که فونت ما فارسی است، راست‌چین را به درستی مدیریت می‌کند.
+        print("Rendering HTML content...")
+        pdf.write_html(f'<div dir="rtl" style="font-family: Vazir; font-size: 12pt;">{html_content}</div>')
         
-        print("Setting PDF font to Vazir...")
-        pdf.set_font('Vazir', '', 12)
-        pdf.set_right_to_left(True)
-        print("--- Font embedding successful ---")
+        print("--- HTML rendering successful ---")
 
     except Exception:
-        print("🔥🔥🔥 FONT EMBEDDING FAILED! See traceback below. 🔥🔥🔥")
-        # چاپ کامل خطا در لاگ برای دیباگ نهایی
+        print("🔥🔥🔥 PDF CREATION FAILED! See traceback below. 🔥🔥🔥")
         print(traceback.format_exc())
-        
-        print("Falling back to default Arial font.")
+        # اگر خطا رخ دهد، یک صفحه PDF با پیام خطا ایجاد می‌کنیم
         pdf.set_font('Arial', 'B', 12)
-        pdf.cell(0, 10, 'WARNING: Persian font could not be loaded. Check server logs.', 0, 1, 'C')
-        pdf.set_font('Arial', '', 12)
+        pdf.cell(0, 10, 'ERROR: Could not generate PDF. Please check server logs.', 0, 1, 'C')
 
-    print("Writing text content to PDF...")
-    pdf.multi_cell(0, 10, text_content)
-    
     print("Generating PDF output bytes...")
     pdf_output = pdf.output()
     buffer = io.BytesIO(pdf_output)
@@ -73,7 +67,7 @@ def create_txt(text_content):
     buffer = io.BytesIO(text_content.encode('utf-8'))
     buffer.seek(0)
     return buffer
-    
+
 def create_xlsx(text_content):
     buffer = io.BytesIO()
     workbook = Workbook()
@@ -87,34 +81,23 @@ def create_xlsx(text_content):
 
 # --- منطق اصلی و روت‌ها (بدون تغییر) ---
 def process_request(content, file_format):
-    try:
-        if file_format == 'pdf':
-            buffer = create_pdf(content)
-            filename = 'export.pdf'
-            mimetype = 'application/pdf'
-        elif file_format == 'docx':
-            buffer = create_docx(content)
-            filename = 'export.docx'
-            mimetype = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-        elif file_format == 'xlsx':
-            buffer = create_xlsx(content)
-            filename = 'export.xlsx'
-            mimetype = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        else:
-            buffer = create_txt(content)
-            filename = 'export.txt'
-            mimetype = 'text/plain'
-
-        return send_file(
-            buffer,
-            as_attachment=True,
-            download_name=filename,
-            mimetype=mimetype
-        )
-    except Exception:
-        print(f"🔥🔥🔥 An uncaught error occurred in process_request for format '{file_format}' 🔥🔥🔥")
-        print(traceback.format_exc())
-        return "An internal server error occurred while generating the file.", 500
+    if file_format == 'pdf':
+        buffer = create_pdf(content) # این تابع حالا محتوای HTML می‌گیرد
+        filename = 'export.pdf'
+        mimetype = 'application/pdf'
+    elif file_format == 'docx':
+        buffer = create_docx(content)
+        filename = 'export.docx'
+        mimetype = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    elif file_format == 'xlsx':
+        buffer = create_xlsx(content)
+        filename = 'export.xlsx'
+        mimetype = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    else:
+        buffer = create_txt(content)
+        filename = 'export.txt'
+        mimetype = 'text/plain'
+    return send_file(buffer, as_attachment=True, download_name=filename, mimetype=mimetype)
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
