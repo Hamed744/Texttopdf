@@ -2,4 +2,4 @@ Flask
 gunicorn
 python-docx
 openpyxl
-reportlab
+fpdf2
