@@ -1,11 +1,11 @@
-# app.py (نسخه نهایی با تشخیص خودکار جهت متن LTR/RTL)
+# app.py (نسخه نهایی با ساختار تیتر/پاراگراف برای حل باگ رندرینگ)
 
 import os
 import io
 import traceback
 from flask import Flask, request, jsonify, send_file, render_template
 
-# --- کتابخانه جدید برای ساخت PDF ---
+# --- کتابخانه برای ساخت PDF ---
 from weasyprint import HTML, CSS
 
 from docx import Document
@@ -22,23 +22,29 @@ FOOTER_TEXT = "هوش مصنوعی آلفا دانلود از گوگل پلی"
 
 def create_pdf_with_weasyprint(text_content):
     """
-    با استفاده از WeasyPrint از متن یک PDF زیبا و بی‌نقص می‌سازد.
-    این نسخه جهت متن را به صورت خودکار تشخیص می‌دهد.
+    با استفاده از WeasyPrint یک PDF بی‌نقص با ساختار تیتر و پاراگراف می‌سازد.
     """
-    print("--- Starting PDF creation with WeasyPrint (Auto-direction) ---")
+    print("--- Starting PDF creation with Heading/Paragraph structure ---")
     
-    # <<< تغییر کلیدی: افزودن dir="auto" به هر پاراگراف >>>
-    # ما دیگر جهت کلی سند را rtl نمی‌کنیم، بلکه به هر پاراگراف اجازه می‌دهیم جهت خود را پیدا کند.
-    paragraphs_html = ''.join([f'<p dir="auto">{line}</p>' for line in text_content.strip().splitlines() if line.strip()])
+    lines = text_content.strip().splitlines()
     
-    # 1. ساخت یک قالب HTML کامل و زیبا با استفاده از CSS
+    # <<< تغییر کلیدی: جدا کردن خط اول به عنوان تیتر >>>
+    heading_html = ""
+    # اگر متنی وجود داشته باشد و خط اول خالی نباشد
+    if lines and lines[0].strip():
+        # خط اول را در یک تگ h2 (تیتر) قرار می‌دهیم
+        heading_html = f'<h2 dir="auto">{lines[0].strip()}</h2>'
+
+    # پردازش بقیه خطوط به عنوان پاراگراف
+    paragraphs_html = ''.join([f'<p dir="auto">{line.strip()}</p>' for line in lines[1:] if line.strip()])
+    
+    # 1. ساخت قالب HTML کامل با استایل‌های جدید برای تیتر
     html_template = f"""
     <!DOCTYPE html>
     <html lang="fa">
     <head>
         <meta charset="UTF-8">
         <style>
-            /* تعریف فونت وزیر برای استفاده در کل سند */
             @font-face {{
                 font-family: 'Vazir';
                 src: url('{FONT_FILE_NAME}');
@@ -50,14 +56,13 @@ def create_pdf_with_weasyprint(text_content):
                 line-height: 1.8;
             }}
             
-            /* <<< تغییر کلیدی: استایل‌دهی هوشمند بر اساس جهت متن >>> */
-            /* پاراگراف‌های راست‌چین (فارسی) */
-            p[dir="rtl"] {{
-                text-align: right;
-            }}
-            /* پاراگراف‌های چپ‌چین (انگلیسی) */
-            p[dir="ltr"] {{
-                text-align: left;
+            /* استایل جدید برای تیتر */
+            h2 {{
+                font-size: 16pt;
+                color: #333;
+                border-bottom: 1px solid #eee;
+                padding-bottom: 10px;
+                margin-bottom: 24px;
             }}
             
             p {{
@@ -65,7 +70,15 @@ def create_pdf_with_weasyprint(text_content):
                 margin-bottom: 1em;
             }}
 
-            /* استایل پاورقی (پاورقی همیشه راست‌چین است) */
+            /* استایل هوشمند برای چینش متن (برای تیتر و پاراگراف) */
+            *[dir="rtl"] {{
+                text-align: right;
+            }}
+            *[dir="ltr"] {{
+                text-align: left;
+            }}
+
+            /* استایل پاورقی (بدون تغییر) */
             .footer {{
                 position: fixed;
                 bottom: 10px;
@@ -74,14 +87,14 @@ def create_pdf_with_weasyprint(text_content):
                 text-align: center;
                 color: #007bff; /* آبی */
                 font-size: 10pt;
-                direction: rtl; /* جهت پاورقی ثابت است */
+                direction: rtl;
             }}
         </style>
     </head>
     <body>
+        {heading_html}
         {paragraphs_html}
         
-        <!-- افزودن پاورقی -->
         <div class="footer">
             {FOOTER_TEXT}
         </div>
@@ -90,7 +103,6 @@ def create_pdf_with_weasyprint(text_content):
     """
     
     try:
-        # 2. رندر کردن HTML به PDF
         html = HTML(string=html_template, base_url=BASE_DIR)
         pdf_bytes = html.write_pdf()
         print("--- PDF generated successfully with WeasyPrint ---")
@@ -109,8 +121,7 @@ def create_pdf_with_weasyprint(text_content):
 def create_docx(text_content):
     document = Document()
     p = document.add_paragraph(text_content)
-    # در ورد، تشخیص خودکار سخت‌تر است و معمولاً کل سند یک جهت دارد
-    p.alignment = 3 # WD_ALIGN_PARAGRAPH.RIGHT
+    p.alignment = 3 
     footer = document.sections[0].footer
     footer_p = footer.paragraphs[0]
     footer_p.text = FOOTER_TEXT
