@@ -1,4 +1,4 @@
-# app.py (نسخه نهایی با کتابخانه قدرتمند WeasyPrint)
+# app.py (نسخه نهایی با تشخیص خودکار جهت متن LTR/RTL)
 
 import os
 import io
@@ -22,18 +22,17 @@ FOOTER_TEXT = "هوش مصنوعی آلفا دانلود از گوگل پلی"
 
 def create_pdf_with_weasyprint(text_content):
     """
-    با استفاده از WeasyPrint از متن یک PDF زیبا و بی‌نقص می‌سازد.
+    ساخت PDF با تشخیص خودکار جهت متن برای هر پاراگراف
     """
-    print("--- Starting PDF creation with WeasyPrint ---")
+    print("--- Starting PDF creation with auto LTR/RTL detection ---")
     
-    # 1. ساخت یک قالب HTML کامل و زیبا با استفاده از CSS
+    # <<< تغییر کلیدی: افزودن dir="auto" به پاراگراف‌ها و اصلاح CSS >>>
     html_template = f"""
     <!DOCTYPE html>
     <html lang="fa" dir="rtl">
     <head>
         <meta charset="UTF-8">
         <style>
-            /* تعریف فونت وزیر برای استفاده در کل سند */
             @font-face {{
                 font-family: 'Vazir';
                 src: url('{FONT_FILE_NAME}');
@@ -45,29 +44,32 @@ def create_pdf_with_weasyprint(text_content):
                 line-height: 1.8;
             }}
             
-            /* جدا کردن هر خط ورودی به عنوان یک پاراگراف مجزا */
             p {{
+                /* باعث می‌شود پاراگراف‌ها در هر دو حالت زیبا به نظر برسند */
+                text-align: justify;
                 margin-top: 0;
                 margin-bottom: 1em;
             }}
+            
+            /* این دو خط مهم‌ترین بخش استایل جدید هستند */
+            p[dir="rtl"] {{ text-align: right; }}
+            p[dir="ltr"] {{ text-align: left; }}
 
-            /* استایل پاورقی */
             .footer {{
                 position: fixed;
                 bottom: 10px;
                 left: 0;
                 right: 0;
                 text-align: center;
-                color: #007bff; /* آبی */
+                color: #007bff;
                 font-size: 10pt;
             }}
         </style>
     </head>
     <body>
-        <!-- تبدیل هر خط از متن ورودی به یک پاراگراف -->
-        {''.join([f'<p>{line}</p>' for line in text_content.strip().splitlines() if line.strip()])}
+        <!-- برای هر پاراگراف از dir="auto" استفاده می‌کنیم تا جهت آن هوشمندانه تعیین شود -->
+        {''.join([f'<p dir="auto">{line}</p>' for line in text_content.strip().splitlines() if line.strip()])}
         
-        <!-- افزودن پاورقی -->
         <div class="footer">
             {FOOTER_TEXT}
         </div>
@@ -76,29 +78,25 @@ def create_pdf_with_weasyprint(text_content):
     """
     
     try:
-        # 2. رندر کردن HTML به PDF
-        # base_url برای پیدا کردن فایل فونت ضروری است
         html = HTML(string=html_template, base_url=BASE_DIR)
-        
-        # 3. خروجی گرفتن به صورت بایت
         pdf_bytes = html.write_pdf()
         print("--- PDF generated successfully with WeasyPrint ---")
         return io.BytesIO(pdf_bytes)
 
     except Exception:
-        # اگر خطایی رخ دهد، یک PDF ساده با پیام خطا می‌سازیم
         print("🔥🔥🔥 WEASYPRINT FAILED! See traceback below. 🔥🔥🔥")
         print(traceback.format_exc())
         error_html = f"<h1>Error</h1><p>Could not generate PDF. Please check server logs.</p>"
         return io.BytesIO(HTML(string=error_html).write_pdf())
 
 
-# --- بقیه فایل app.py (بدون تغییر در منطق اصلی) ---
+# --- بقیه فایل app.py (توابع دیگر و روت‌ها) بدون هیچ تغییری باقی می‌ماند ---
 
 def create_docx(text_content):
     document = Document()
     p = document.add_paragraph(text_content)
-    p.alignment = 3
+    # در ورد، تشخیص خودکار جهت متن پیچیده‌تر است و فعلا به صورت پیش‌فرض راست‌چین باقی می‌ماند
+    p.alignment = 3 
     footer = document.sections[0].footer
     footer_p = footer.paragraphs[0]
     footer_p.text = FOOTER_TEXT
@@ -130,7 +128,7 @@ def create_xlsx(text_content):
 
 def process_request(content, file_format):
     if file_format == 'pdf':
-        buffer = create_pdf_with_weasyprint(content) # فراخوانی تابع جدید
+        buffer = create_pdf_with_weasyprint(content)
         filename = 'export.pdf'
         mimetype = 'application/pdf'
     elif file_format == 'docx':
