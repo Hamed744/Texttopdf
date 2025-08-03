@@ -2,7 +2,4 @@ Flask
 gunicorn
 python-docx
 openpyxl
-fpdf2
-fonttools
-arabic_reshaper
-python-bidi
+weasyprint
