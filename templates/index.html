@@ -42,9 +42,7 @@
 
         <form action="/" method="post">
             <label for="content">متن شما:</label>
-            <textarea id="content" name="content" placeholder="متن خود را اینجا وارد کنید...
-خط اول به عنوان تیتر در PDF در نظر گرفته می‌شود.
-خطوط بعدی پاراگراف‌ها را تشکیل می‌دهند." required></textarea>
+            <textarea id="content" name="content" placeholder="متن خود را اینجا وارد کنید..." required></textarea>
 
             <label>انتخاب فرمت خروجی:</label>
             <div class="grid">
@@ -60,9 +58,10 @@
                     <input type="radio" name="format" value="docx">
                     ورد (DOCX)
                 </label>
+                <!-- ***** تغییر در اینجا اعمال شده است ***** -->
                 <label>
-                    <input type="radio" name="format" value="xlsx">
-                    اکسل (XLSX)
+                    <input type="radio" name="format" value="html">
+                    اچ‌تی‌ام‌ال (HTML)
                 </label>
             </div>
 
