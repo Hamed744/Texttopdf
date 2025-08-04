@@ -4,3 +4,4 @@ python-docx
 weasyprint
 arabic-reshaper
 htmldocx
+Flask-Cors
