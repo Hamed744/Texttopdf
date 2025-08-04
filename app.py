@@ -2,176 +2,146 @@ import os
 import io
 import traceback
 import re
-import json
-import requests
 from flask import Flask, request, send_file, render_template
-from flask_cors import CORS
+from flask_cors import CORS  # --- این خط اضافه شده است ---
 
+# --- کتابخانه‌های اصلی ---
 from docx import Document
-from docx.shared import Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from weasyprint import HTML, CSS
 import arabic_reshaper
-from bidi.algorithm import get_display
+
+# --- کتابخانه جدید و کلیدی برای تبدیل HTML به DOCX ---
+from htmldocx import HtmlToDocx
 
 app = Flask(__name__)
-CORS(app)
+CORS(app)  # --- این خط اضافه شده است تا به همه دامنه‌ها اجازه دسترسی بدهد ---
 
+# --- ثابت‌ها ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FONT_FILE_NAME = "Vazirmatn-Regular.ttf"
 FOOTER_TEXT = "هوش مصنوعی آلفا دانلود از گوگل پلی"
 
+
 # --- توابع کمکی ---
-def reshape_text(text):
-    if not text:
-        return ""
-    return get_display(arabic_reshaper.reshape(text))
+def get_line_direction(line):
+    if not line or line.isspace(): return 'ltr'
+    rtl_pattern = re.compile(r'[\u0600-\u06FF\u0750-\u077F]')
+    return 'rtl' if rtl_pattern.search(line) else 'ltr'
 
-# --- توابع جدید برای ساخت فایل از داده‌های ساختاریافته (JSON) ---
+def reshape_rtl_text(line):
+    return arabic_reshaper.reshape(line)
 
-def create_html_from_data(data, is_for_pdf=False):
-    title = data.get('title', 'گفتگو')
-    messages = data.get('messages', [])
-    
-    html_parts = []
-    for msg in messages:
-        role = "کاربر" if msg.get('role') == 'user' else "مدل"
-        text = msg.get('text', '')
-        images = msg.get('images', [])
-        
-        style = "background-color: #eef; border-right: 3px solid #6c757d;" if role == "کاربر" else "background-color: #f8f9fa; border-right: 3px solid #dee2e6;"
-        
-        html_parts.append(f'<div class="message" style="{style}">')
-        html_parts.append(f'<strong>{reshape_text(role)}:</strong>')
-        
-        if text:
-            reshaped_text_content = reshape_text(text).replace('\n', '<br>')
-            html_parts.append(f'<p>{reshaped_text_content}</p>')
-            
-        if images and is_for_pdf:
-            html_parts.append('<div class="image-container">')
-            for img_url in images:
-                html_parts.append(f'<img src="{img_url}" alt="Image from chat">')
-            html_parts.append('</div>')
-            
-        html_parts.append('</div>')
-        
-    chat_html = "\n".join(html_parts)
-    reshaped_footer = reshape_text(FOOTER_TEXT)
-    
-    font_url = f"file://{os.path.join(BASE_DIR, FONT_FILE_NAME)}" if is_for_pdf else FONT_FILE_NAME
+# --- توابع ساخت فایل ---
 
-    full_html = f"""
-    <!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8"><title>{reshape_text(title)}</title>
-    <style>
-        @font-face {{ font-family: 'Vazir'; src: url('{font_url}'); }}
-        body {{ font-family: 'Vazir', sans-serif; font-size: 11pt; line-height: 1.8; max-width: 800px; margin: 1rem auto; padding: 1rem; border: 1px solid #ddd; }}
-        h1 {{ text-align: center; border-bottom: 2px solid #eee; padding-bottom: 10px; }}
-        .message {{ padding: 10px; margin-bottom: 10px; border-radius: 8px; }}
-        .message p {{ margin-top: 5px; white-space: pre-wrap; word-wrap: break-word; }}
-        .image-container {{ margin-top: 10px; }}
-        .image-container img {{ max-width: 100%; height: auto; border-radius: 5px; margin-bottom: 10px; border: 1px solid #ccc; }}
-        .footer {{ margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #eee; text-align: center; color: #007bff; font-size: 9pt; }}
-    </style></head>
-    <body><h1>{reshape_text(title)}</h1>{chat_html}<div class="footer">{reshaped_footer}</div></body></html>
+def get_base_html_for_conversion(text_content):
     """
-    return full_html
+    یک رشته HTML پایه تولید می‌کند که هم برای PDF و هم برای DOCX قابل استفاده است.
+    """
+    content_html_parts = []
+    for line in text_content.split('\n'):
+        if not line.strip():
+            content_html_parts.append('<p> </p>')
+            continue
+        direction = get_line_direction(line)
+        if direction == 'rtl':
+            reshaped_line = reshape_rtl_text(line)
+            content_html_parts.append(f'<p style="text-align: right; direction: rtl;">{reshaped_line}</p>')
+        else:
+            content_html_parts.append(f'<p style="text-align: left; direction: ltr;">{line}</p>')
+    return "\n".join(content_html_parts)
 
-def create_pdf_from_data(data):
-    full_html = create_html_from_data(data, is_for_pdf=True)
-    return io.BytesIO(HTML(string=full_html, base_url=BASE_DIR).write_pdf())
 
-def create_docx_from_data(data):
+def create_docx(text_content):
+    """
+    DOCX را با تبدیل مستقیم از HTML ایجاد می‌کند.
+    """
+    print("--- DOCX Creation: Using HTML to DOCX conversion method ---")
     document = Document()
-    document.add_heading(reshape_text(data.get('title', 'گفتگو')), level=1)
-    for msg in data.get('messages', []):
-        role = "کاربر" if msg.get('role') == 'user' else "مدل"
-        p_role = document.add_paragraph()
-        p_role.add_run(reshape_text(role) + ':').bold = True
-        if msg.get('text'):
-            p_text = document.add_paragraph(reshape_text(msg.get('text')))
-            p_text.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-        if msg.get('images'):
-            for img_url in msg.get('images'):
-                try:
-                    response = requests.get(img_url, stream=True, timeout=10)
-                    response.raise_for_status()
-                    image_stream = io.BytesIO(response.content)
-                    document.add_picture(image_stream, width=Inches(4.0))
-                except Exception as e:
-                    print(f"Error fetching image {img_url}: {e}")
-                    document.add_paragraph(reshape_text(f"[خطا در بارگذاری تصویر: {img_url}]"))
+    parser = HtmlToDocx()
+    html_content = get_base_html_for_conversion(text_content)
+    parser.add_html_to_document(html_content, document)
+    footer = document.sections[0].footer
+    footer_p = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+    footer_p.text = reshape_rtl_text(FOOTER_TEXT)
+    footer_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     buffer = io.BytesIO()
     document.save(buffer)
     buffer.seek(0)
     return buffer
 
-def create_txt_from_data(data):
-    title = data.get('title', 'گفتگو')
-    messages = data.get('messages', [])
-    txt_parts = [f"عنوان: {title}\n{'='*20}\n"]
-    for msg in messages:
-        role = "کاربر" if msg.get('role') == 'user' else "مدل"
-        txt_parts.append(f"{role}:")
-        if msg.get('text'):
-            txt_parts.append(msg.get('text'))
-        if msg.get('images'):
-            for img_url in msg.get('images'):
-                txt_parts.append(f"[تصویر: {img_url}]")
-        txt_parts.append("\n---\n")
-    return io.BytesIO(("\n".join(txt_parts)).encode('utf-8'))
+def create_pdf_with_weasyprint(text_content):
+    """
+    PDF را از روی یک قالب کامل HTML با فونت سفارشی ایجاد می‌کند.
+    """
+    html_body = get_base_html_for_conversion(text_content)
+    reshaped_footer = reshape_rtl_text(FOOTER_TEXT)
+    full_html = f"""
+    <!DOCTYPE html><html lang="fa"><head><meta charset="UTF-8"><title>Exported PDF</title>
+    <style>
+        @font-face {{ font-family: 'Vazir'; src: url('{FONT_FILE_NAME}'); }}
+        body {{ font-family: 'Vazir', sans-serif; font-size: 12pt; line-height: 1.8; }}
+        p {{ margin: 0; padding: 0; }}
+        .footer {{ position: fixed; bottom: 10px; left: 0; right: 0; text-align: center; color: #007bff; font-size: 10pt; font-family: 'Vazir', sans-serif; }}
+    </style></head><body>{html_body}
+    <div class="footer">{reshaped_footer}</div></body></html>
+    """
+    try:
+        html = HTML(string=full_html, base_url=BASE_DIR)
+        return io.BytesIO(html.write_pdf())
+    except Exception:
+        print(f"🔥🔥🔥 WEASYPRINT FAILED! 🔥🔥🔥\n{traceback.format_exc()}")
+        return io.BytesIO(b"Error generating PDF.")
 
-# --- توابع برای پردازش متن ساده ---
-def create_file_from_string(text_content, file_format):
-    if file_format == 'pdf':
-        html = f"<!DOCTYPE html><html lang='fa'><head><meta charset='UTF-8'><style>@font-face {{ font-family: 'Vazir'; src: url('{FONT_FILE_NAME}'); }} body {{ font-family: 'Vazir', sans-serif; }}</style></head><body>{reshape_text(text_content).replace('\n', '<br>')}</body></html>"
-        return io.BytesIO(HTML(string=html, base_url=BASE_DIR).write_pdf())
-    elif file_format == 'docx':
-        document = Document()
-        document.add_paragraph(reshape_text(text_content))
-        buffer = io.BytesIO()
-        document.save(buffer)
-        buffer.seek(0)
-        return buffer
-    else: # txt and html
-        return io.BytesIO(text_content.encode('utf-8'))
+def create_txt(text_content):
+    full_content = f"{text_content}\n\n\n---\n{FOOTER_TEXT}"
+    return io.BytesIO(full_content.encode('utf-8'))
 
+def create_html(text_content):
+    """یک فایل HTML قابل نمایش در مرورگر با استایل‌های کامل ایجاد می‌کند."""
+    html_body = get_base_html_for_conversion(text_content)
+    reshaped_footer = reshape_rtl_text(FOOTER_TEXT)
+    full_html = f"""
+    <!DOCTYPE html><html lang="fa"><head><meta charset="UTF-8"><title>Exported File</title>
+    <style>
+        body {{ font-size: 12pt; line-height: 1.8; max-width: 800px; margin: 2rem auto; padding: 2rem; border: 1px solid #ddd; font-family: sans-serif; }}
+        p {{ margin: 0; padding: 0 0 0.5em 0; }}
+        .footer {{ margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #eee; text-align: center; color: #007bff; font-size: 10pt; }}
+    </style></head><body>{html_body}
+    <div class="footer">{reshaped_footer}</div></body></html>
+    """
+    return io.BytesIO(full_html.encode('utf-8'))
 
 # --- تابع پردازشگر اصلی درخواست ---
-@app.route('/', methods=['POST', 'GET', 'HEAD'])
-def process_request_route():
-    if request.method != 'POST':
-        return render_template('index.html') if request.method == 'GET' else ('', 200)
-
-    file_format = request.form.get('format', 'txt').lower()
-    json_content = request.form.get('json_content')
-    text_content = request.form.get('content')
-    
+def process_request(content, file_format):
+    actions = {'pdf': create_pdf_with_weasyprint, 'docx': create_docx, 'html': create_html, 'txt': create_txt}
+    buffer_func = actions.get(file_format, create_txt)
+    buffer = buffer_func(content)
     mimetypes = {'pdf': 'application/pdf', 'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'html': 'text/html', 'txt': 'text/plain'}
     mimetype = mimetypes.get(file_format, 'text/plain')
     filename = f'export.{file_format}'
-    buffer = None
+    return send_file(buffer, as_attachment=True, download_name=filename, mimetype=mimetype)
 
-    try:
-        if json_content:
-            data = json.loads(json_content)
-            if file_format == 'pdf': buffer = create_pdf_from_data(data)
-            elif file_format == 'docx': buffer = create_docx_from_data(data)
-            elif file_format == 'html': buffer = io.BytesIO(create_html_from_data(data, is_for_pdf=False).encode('utf-8'))
-            elif file_format == 'txt': buffer = create_txt_from_data(data)
-        elif text_content:
-            buffer = create_file_from_string(text_content, file_format)
-        else:
-            return "هیچ محتوایی برای تبدیل ارسال نشده است.", 400
 
-        if buffer:
-            return send_file(buffer, as_attachment=True, download_name=filename, mimetype=mimetype)
-        else:
-            return "فرمت فایل نامعتبر است.", 400
+# --- ***** تغییر اصلی برای پشتیبانی از Render در اینجا اعمال شده است ***** ---
+@app.route('/', methods=['GET', 'POST', 'HEAD'])
+def index():
+    # اگر درخواست از نوع HEAD بود (برای Health Check سرویس Render)
+    # یک پاسخ موفقیت‌آمیز و خالی برگردان
+    if request.method == 'HEAD':
+        return '', 200
 
-    except Exception as e:
-        traceback.print_exc()
-        return f"یک خطای داخلی در سرور رخ داد: {e}", 500
+    # اگر درخواست از نوع POST بود (کاربر دکمه ساخت فایل را زده)
+    if request.method == 'POST':
+        content = request.form.get('content')
+        file_format = request.form.get('format', 'txt').lower()
+        if not content:
+            return "لطفا متنی برای تبدیل وارد کنید.", 400
+        return process_request(content, file_format)
+    
+    # در غیر این صورت، درخواست GET است و باید صفحه اصلی نمایش داده شود
+    return render_template('index.html')
+
 
 if __name__ == '__main__':
     app.run(debug=True)
