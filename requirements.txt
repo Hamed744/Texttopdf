@@ -3,7 +3,6 @@ gunicorn
 python-docx
 weasyprint
 arabic-reshaper
-htmldocx
 Flask-Cors
 requests
 bidi
