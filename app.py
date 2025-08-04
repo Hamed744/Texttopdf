@@ -4,14 +4,14 @@ import traceback
 import re
 from flask import Flask, request, send_file, render_template
 
-# --- کتابخانه‌ها ---
-from weasyprint import HTML, CSS
+# --- کتابخانه‌های اصلی ---
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Pt  # برای تنظیم اندازه فونت
-# openpyxl دیگر لازم نیست
-
+from weasyprint import HTML, CSS
 import arabic_reshaper
+
+# --- کتابخانه جدید و کلیدی برای تبدیل HTML به DOCX ---
+from htmldocx import HtmlToDocx
 
 app = Flask(__name__)
 
@@ -30,90 +30,80 @@ def get_line_direction(line):
 def reshape_rtl_text(line):
     return arabic_reshaper.reshape(line)
 
+# --- توابع ساخت فایل (با رویکرد جدید) ---
 
-# --- توابع ساخت فایل (منطق نهایی و اصلاح‌شده) ---
+def get_base_html_for_conversion(text_content):
+    """
+    یک رشته HTML پایه تولید می‌کند که هم برای PDF و هم برای DOCX قابل استفاده است.
+    """
+    content_html_parts = []
+    for line in text_content.split('\n'):
+        # برای حفظ پاراگراف‌های خالی، یک فاصله غیرقابل شکستن اضافه می‌کنیم
+        if not line.strip():
+            content_html_parts.append('<p> </p>')
+            continue
+        
+        direction = get_line_direction(line)
+        
+        if direction == 'rtl':
+            reshaped_line = reshape_rtl_text(line)
+            # استفاده از استایل inline برای حداکثر سازگاری
+            content_html_parts.append(f'<p style="text-align: right; direction: rtl;">{reshaped_line}</p>')
+        else:
+            content_html_parts.append(f'<p style="text-align: left; direction: ltr;">{line}</p>')
+            
+    return "\n".join(content_html_parts)
+
 
 def create_docx(text_content):
     """
-    DOCX را با پردازش متن و تنظیم فونت مناسب برای هر بخش ایجاد می‌کند.
+    DOCX را با تبدیل مستقیم از HTML ایجاد می‌کند. این روش بسیار قابل اطمینان‌تر است.
     """
+    print("--- DOCX Creation: Using HTML to DOCX conversion method ---")
     document = Document()
-    # تنظیم استایل پیش‌فرض برای پشتیبانی بهتر
-    style = document.styles['Normal']
-    style.font.name = 'Arial'
-    style.font.size = Pt(12)
+    parser = HtmlToDocx()
+    
+    # محتوای HTML را تولید می‌کنیم
+    html_content = get_base_html_for_conversion(text_content)
+    
+    # HTML را به سند Word اضافه می‌کنیم
+    parser.add_html_to_document(html_content, document)
 
-    for line in text_content.split('\n'):
-        if not line.strip():
-            document.add_paragraph()
-            continue
-
-        p = document.add_paragraph()
-        direction = get_line_direction(line)
-
-        if direction == 'rtl':
-            p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-            p.paragraph_format.right_to_left = True
-            
-            # --- کلید اصلی حل مشکل ---
-            # یک "Run" به پاراگراف اضافه کرده و فونت آن را مشخص می‌کنیم.
-            run = p.add_run(reshape_rtl_text(line))
-            run.font.name = 'Arial'  # یا 'Tahoma'
-            # برای اطمینان، فونت‌های Complex Script را هم تنظیم می‌کنیم.
-            r_fonts = run.font.element.rPr.rFonts
-            r_fonts.set(qn('w:eastAsia'), 'Arial')
-            r_fonts.set(qn('w:cs'), 'Arial')
-
-        else: # برای خطوط LTR
-            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-            p.paragraph_format.right_to_left = False
-            run = p.add_run(line)
-            run.font.name = 'Arial' # یا هر فونت انگلیسی دیگر
-
-    # تنظیم پاورقی
+    # افزودن پاورقی به صورت دستی (چون htmldocx از آن پشتیبانی نمی‌کند)
     footer = document.sections[0].footer
     footer_p = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+    footer_p.text = reshape_rtl_text(FOOTER_TEXT)
     footer_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = footer_p.add_run(reshape_rtl_text(FOOTER_TEXT))
-    run.font.name = 'Arial'
-    r_fonts = run.font.element.rPr.rFonts
-    r_fonts.set(qn('w:cs'), 'Arial')
     
     buffer = io.BytesIO()
     document.save(buffer)
     buffer.seek(0)
     return buffer
 
-# --- سایر توابع ساخت فایل (که به درستی کار می‌کردند) ---
-
-def get_html_template(text_content):
-    content_html_parts = []
-    for line in text_content.split('\n'):
-        if not line.strip():
-            content_html_parts.append('<div> </div>')
-            continue
-        direction = get_line_direction(line)
-        if direction == 'rtl':
-            content_html_parts.append(f'<div class="rtl">{reshape_rtl_text(line)}</div>')
-        else:
-            content_html_parts.append(f'<div class="ltr">{line}</div>')
-    final_html_content = "\n".join(content_html_parts)
-    return f"""
-    <!DOCTYPE html><html lang="fa"><head><meta charset="UTF-8"><title>Exported File</title>
+def create_pdf_with_weasyprint(text_content):
+    """
+    PDF را از روی یک قالب کامل HTML با فونت سفارشی ایجاد می‌کند.
+    """
+    html_body = get_base_html_for_conversion(text_content)
+    reshaped_footer = reshape_rtl_text(FOOTER_TEXT)
+    
+    # قالب کامل HTML با فونت وزیر و استایل‌های مورد نیاز
+    full_html = f"""
+    <!DOCTYPE html><html lang="fa"><head><meta charset="UTF-8"><title>Exported PDF</title>
     <style>
         @font-face {{ font-family: 'Vazir'; src: url('{FONT_FILE_NAME}'); }}
-        body {{ font-family: 'Vazir', sans-serif; font-size: 12pt; line-height: 1.8; max-width: 800px; margin: 2rem auto; padding: 1rem; border: 1px solid #ddd; }}
-        .rtl {{ text-align: right; direction: rtl; }} .ltr {{ text-align: left; direction: ltr; }}
-        .footer {{ margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #eee; text-align: center; color: #007bff; font-size: 10pt; }}
-    </style></head><body>{final_html_content}
-    <div class="footer rtl">{reshape_rtl_text(FOOTER_TEXT)}</div></body></html>
+        body {{ font-family: 'Vazir', sans-serif; font-size: 12pt; line-height: 1.8; }}
+        p {{ margin: 0; padding: 0; }} /* کنترل بهتر فاصله پاراگراف‌ها */
+        .footer {{
+            position: fixed; bottom: 10px; left: 0; right: 0;
+            text-align: center; color: #007bff; font-size: 10pt;
+            font-family: 'Vazir', sans-serif;
+        }}
+    </style></head><body>{html_body}
+    <div class="footer">{reshaped_footer}</div></body></html>
     """
-
-def create_pdf_with_weasyprint(text_content):
-    html_string = get_html_template(text_content)
     try:
-        html_string = html_string.replace('.footer {', '.footer { position: fixed; bottom: 10px; left: 0; right: 0; border: none;')
-        html = HTML(string=html_string, base_url=BASE_DIR)
+        html = HTML(string=full_html, base_url=BASE_DIR)
         return io.BytesIO(html.write_pdf())
     except Exception:
         print(f"🔥🔥🔥 WEASYPRINT FAILED! 🔥🔥🔥\n{traceback.format_exc()}")
@@ -124,35 +114,47 @@ def create_txt(text_content):
     return io.BytesIO(full_content.encode('utf-8'))
 
 def create_html(text_content):
-    html_string = get_html_template(text_content)
-    return io.BytesIO(html_string.encode('utf-8'))
+    """یک فایل HTML قابل نمایش در مرورگر با استایل‌های کامل ایجاد می‌کند."""
+    html_body = get_base_html_for_conversion(text_content)
+    reshaped_footer = reshape_rtl_text(FOOTER_TEXT)
+    
+    # قالب کامل HTML با استایل‌های مناسب برای مشاهده در مرورگر
+    full_html = f"""
+    <!DOCTYPE html><html lang="fa"><head><meta charset="UTF-8"><title>Exported File</title>
+    <style>
+        body {{ font-size: 12pt; line-height: 1.8; max-width: 800px; margin: 2rem auto; padding: 2rem; border: 1px solid #ddd; font-family: sans-serif; }}
+        p {{ margin: 0; padding: 0 0 0.5em 0; }}
+        .footer {{ margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #eee; text-align: center; color: #007bff; font-size: 10pt; }}
+    </style></head><body>{html_body}
+    <div class="footer">{reshaped_footer}</div></body></html>
+    """
+    return io.BytesIO(full_html.encode('utf-8'))
 
-# --- تابع پردازشگر اصلی درخواست (بدون تغییر) ---
+# --- تابع پردازشگر اصلی درخواست ---
 def process_request(content, file_format):
-    if file_format == 'pdf':
-        buffer = create_pdf_with_weasyprint(content)
-        filename = 'export.pdf'
-        mimetype = 'application/pdf'
-    elif file_format == 'docx':
-        buffer = create_docx(content)
-        filename = 'export.docx'
-        mimetype = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    elif file_format == 'html':
-        buffer = create_html(content)
-        filename = 'export.html'
-        mimetype = 'text/html'
-    else:
-        buffer = create_txt(content)
-        filename = 'export.txt'
-        mimetype = 'text/plain'
+    actions = {
+        'pdf': create_pdf_with_weasyprint,
+        'docx': create_docx,
+        'html': create_html,
+        'txt': create_txt
+    }
+    buffer_func = actions.get(file_format, create_txt)
+    buffer = buffer_func(content)
+    
+    mimetypes = {
+        'pdf': 'application/pdf',
+        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'html': 'text/html',
+        'txt': 'text/plain'
+    }
+    mimetype = mimetypes.get(file_format, 'text/plain')
+    filename = f'export.{file_format}'
+    
     return send_file(buffer, as_attachment=True, download_name=filename, mimetype=mimetype)
+
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    # برای استفاده از qn در تابع create_docx
-    global qn
-    from docx.oxml.ns import qn
-    
     if request.method == 'POST':
         content = request.form.get('content')
         file_format = request.form.get('format', 'txt').lower()
@@ -161,7 +163,6 @@ def index():
         return process_request(content, file_format)
     return render_template('index.html')
 
+
 if __name__ == '__main__':
-    # این import را به ابتدای فایل منتقل می‌کنیم تا خواناتر باشد
-    from docx.oxml.ns import qn
     app.run(debug=True)
