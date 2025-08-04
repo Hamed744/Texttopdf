@@ -3,6 +3,7 @@ import io
 import traceback
 import re
 from flask import Flask, request, send_file, render_template
+from flask_cors import CORS  # --- این خط اضافه شده است ---
 
 # --- کتابخانه‌های اصلی ---
 from docx import Document
@@ -14,6 +15,7 @@ import arabic_reshaper
 from htmldocx import HtmlToDocx
 
 app = Flask(__name__)
+CORS(app)  # --- این خط اضافه شده است تا به همه دامنه‌ها اجازه دسترسی بدهد ---
 
 # --- ثابت‌ها ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
