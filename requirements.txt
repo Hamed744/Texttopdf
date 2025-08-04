@@ -5,4 +5,4 @@ weasyprint
 arabic-reshaper
 Flask-Cors
 requests
-bidi
+python-bidi
