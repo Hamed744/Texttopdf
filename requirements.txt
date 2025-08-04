@@ -1,7 +1,6 @@
 Flask
 gunicorn
 python-docx
-openpyxl
 weasyprint
-python-bidi
 arabic-reshaper
+htmldocx
