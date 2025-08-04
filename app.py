@@ -4,14 +4,11 @@ import traceback
 import re
 from flask import Flask, request, send_file, render_template
 
-# --- کتابخانه‌های ساخت فایل ---
+# --- کتابخانه‌ها ---
 from weasyprint import HTML, CSS
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from openpyxl import Workbook
-from openpyxl.styles import Alignment
-
-# --- کتابخانه لازم برای چسباندن حروف فارسی ---
+# openpyxl دیگر لازم نیست، می‌توانید آن را از requirements.txt هم حذف کنید
 import arabic_reshaper
 
 app = Flask(__name__)
@@ -21,25 +18,19 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FONT_FILE_NAME = "Vazirmatn-Regular.ttf"
 FOOTER_TEXT = "هوش مصنوعی آلفا دانلود از گوگل پلی"
 
-
-# --- توابع کمکی ---
-
+# --- توابع کمکی (بدون تغییر) ---
 def get_line_direction(line):
-    """جهت یک خط را (rtl یا ltr) تشخیص می‌دهد."""
-    if not line or line.isspace():
-        return 'ltr'
+    if not line or line.isspace(): return 'ltr'
     rtl_pattern = re.compile(r'[\u0600-\u06FF\u0750-\u077F]')
     return 'rtl' if rtl_pattern.search(line) else 'ltr'
 
 def reshape_rtl_text(line):
-    """حروف فارسی را برای نمایش صحیح در رندرهای مختلف به هم می‌چسباند."""
     return arabic_reshaper.reshape(line)
 
+# --- توابع ساخت فایل (اصلاح شده) ---
 
-# --- توابع اصلی ساخت فایل (منطق نهایی و اصلاح‌شده برای همه فرمت‌ها) ---
-
-def create_pdf_with_weasyprint(text_content):
-    """PDF را با چسباندن حروف فارسی ایجاد می‌کند."""
+def get_html_template(text_content):
+    """یک تابع مشترک که بدنه HTML را برای PDF و HTML می‌سازد."""
     content_html_parts = []
     for line in text_content.split('\n'):
         if not line.strip():
@@ -52,98 +43,71 @@ def create_pdf_with_weasyprint(text_content):
         else:
             content_html_parts.append(f'<div class="ltr">{line}</div>')
     final_html_content = "\n".join(content_html_parts)
-    html_template = f"""
+    
+    return f"""
     <!DOCTYPE html><html lang="fa"><head><meta charset="UTF-8">
+    <title>Exported File</title>
     <style>
         @font-face {{ font-family: 'Vazir'; src: url('{FONT_FILE_NAME}'); }}
-        body {{ font-family: 'Vazir', sans-serif; font-size: 12pt; line-height: 1.8; }}
+        body {{ font-family: 'Vazir', sans-serif; font-size: 12pt; line-height: 1.8; max-width: 800px; margin: 2rem auto; padding: 1rem; border: 1px solid #ddd; }}
         .rtl {{ text-align: right; direction: rtl; }}
         .ltr {{ text-align: left; direction: ltr; }}
-        .footer {{ position: fixed; bottom: 10px; left: 0; right: 0; text-align: center; color: #007bff; font-size: 10pt; }}
+        .footer {{ margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #eee; text-align: center; color: #007bff; font-size: 10pt; }}
     </style></head><body>{final_html_content}
     <div class="footer rtl">{reshape_rtl_text(FOOTER_TEXT)}</div></body></html>
     """
+
+def create_pdf_with_weasyprint(text_content):
+    html_string = get_html_template(text_content)
     try:
-        html = HTML(string=html_template, base_url=BASE_DIR)
+        # در PDF، پاورقی را با position:fixed استایل می‌دهیم
+        html_string = html_string.replace(
+            '.footer {', 
+            '.footer { position: fixed; bottom: 10px; left: 0; right: 0; border: none;'
+        )
+        html = HTML(string=html_string, base_url=BASE_DIR)
         return io.BytesIO(html.write_pdf())
     except Exception:
         print(f"🔥🔥🔥 WEASYPRINT FAILED! 🔥🔥🔥\n{traceback.format_exc()}")
         return io.BytesIO(b"Error generating PDF.")
 
-
 def create_docx(text_content):
-    """
-    DOCX را با چسباندن حروف فارسی ایجاد می‌کند تا در همه نمایشگرها صحیح دیده شود.
-    """
     document = Document()
     for line in text_content.split('\n'):
         direction = get_line_direction(line)
         if not line.strip():
             document.add_paragraph()
             continue
-
         if direction == 'rtl':
-            # <<< این خط، مشکل DOCX را حل می‌کند >>>
-            processed_line = reshape_rtl_text(line)
-            p = document.add_paragraph(processed_line)
+            p = document.add_paragraph(reshape_rtl_text(line))
             p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
             p.paragraph_format.right_to_left = True
         else:
             p = document.add_paragraph(line)
             p.alignment = WD_ALIGN_PARAGRAPH.LEFT
             p.paragraph_format.right_to_left = False
-
     footer = document.sections[0].footer
     footer_p = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
-    # پاورقی هم نیاز به پردازش دارد
     footer_p.text = reshape_rtl_text(FOOTER_TEXT)
     footer_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     footer_p.paragraph_format.right_to_left = True
-    
     buffer = io.BytesIO()
     document.save(buffer)
     buffer.seek(0)
     return buffer
 
-
-def create_xlsx(text_content):
-    """
-    XLSX را برای سازگاری بیشتر، با حروف فارسی چسبیده ایجاد می‌کند.
-    """
-    workbook = Workbook()
-    sheet = workbook.active
-    sheet.sheet_view.rightToLeft = True
-
-    for i, line in enumerate(text_content.split('\n'), 1):
-        cell = sheet[f'A{i}']
-        direction = get_line_direction(line)
-        
-        if direction == 'rtl':
-            # پردازش برای اکسل هم جهت اطمینان انجام می‌شود
-            cell.value = reshape_rtl_text(line)
-            cell.alignment = Alignment(horizontal='right', vertical='top', wrap_text=True)
-        else:
-            cell.value = line
-            cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
-
-    footer_row = sheet.max_row + 3
-    sheet.merge_cells(f'A{footer_row}:E{footer_row}')
-    footer_cell = sheet[f'A{footer_row}']
-    footer_cell.value = reshape_rtl_text(FOOTER_TEXT)
-    footer_cell.alignment = Alignment(horizontal='center')
-    
-    buffer = io.BytesIO()
-    workbook.save(buffer)
-    buffer.seek(0)
-    return buffer
-
-
 def create_txt(text_content):
     full_content = f"{text_content}\n\n\n---\n{FOOTER_TEXT}"
     return io.BytesIO(full_content.encode('utf-8'))
 
+# ***** تابع جدید برای ساخت HTML *****
+def create_html(text_content):
+    """یک فایل HTML قابل نمایش در مرورگر ایجاد می‌کند."""
+    html_string = get_html_template(text_content)
+    return io.BytesIO(html_string.encode('utf-8'))
 
-# --- توابع مربوط به Flask (بدون تغییر) ---
+
+# --- تابع پردازشگر اصلی درخواست (اصلاح شده) ---
 def process_request(content, file_format):
     if file_format == 'pdf':
         buffer = create_pdf_with_weasyprint(content)
@@ -153,11 +117,12 @@ def process_request(content, file_format):
         buffer = create_docx(content)
         filename = 'export.docx'
         mimetype = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    elif file_format == 'xlsx':
-        buffer = create_xlsx(content)
-        filename = 'export.xlsx'
-        mimetype = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    else:
+    # ***** اینجا XLSX با HTML جایگزین شده است *****
+    elif file_format == 'html':
+        buffer = create_html(content)
+        filename = 'export.html'
+        mimetype = 'text/html'
+    else: # پیش‌فرض txt
         buffer = create_txt(content)
         filename = 'export.txt'
         mimetype = 'text/plain'
